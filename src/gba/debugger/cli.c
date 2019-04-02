@@ -12,6 +12,9 @@
 #include <mgba/internal/gba/video.h>
 #include <mgba/internal/arm/debugger/cli-debugger.h>
 
+#include <stdio.h>
+#include <mgba/gba/coverage.h>
+
 static void _GBACLIDebuggerInit(struct CLIDebuggerSystem*);
 static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem*);
 
@@ -19,10 +22,15 @@ static void _frame(struct CLIDebugger*, struct CLIDebugVector*);
 static void _load(struct CLIDebugger*, struct CLIDebugVector*);
 static void _save(struct CLIDebugger*, struct CLIDebugVector*);
 
+static void _coverageStart(struct CLIDebugger*, struct CLIDebugVector*);
+static void _coverageStop(struct CLIDebugger*, struct CLIDebugVector*);
+
 struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
 	{ "frame", _frame, "", "Frame advance" },
 	{ "load", _load, "*", "Load a savestate" },
 	{ "save", _save, "*", "Save a savestate" },
+    { "coverage-start", _coverageStart, "S", "Starts a coverage analysis"},
+    { "coverage-stop", _coverageStop, "S", "Stops a coverage analysis and writes the file"},
 	{ 0, 0, 0, 0 }
 };
 
@@ -60,6 +68,40 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 		return true;
 	}
 	return false;
+}
+
+// Code coverage stuff
+static void _coverageStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+    
+    char* path = dv->charValue;
+    
+    // Here we use a global variable, because it is a quick and dirty code
+    // coverage tool.
+    if((covfd_G = fopen(path, "w")) == NULL) {
+        be->printf(be, "Couldn't open file '%s'\n'", path);
+        return;
+    }
+
+    be->printf(be, "Outputing coverage data in '%s'\n", path);
+}
+
+static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(covfd_G == NULL) {
+        be->printf(be, "Coverage was not started\n");
+        return;
+    }
+
+    be->printf(be, "Stopping code coverage analysis\n");
+    fclose(covfd_G);
+    covfd_G = NULL;
 }
 
 static void _frame(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {

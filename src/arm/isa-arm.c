@@ -8,6 +8,9 @@
 #include <mgba/internal/arm/arm.h>
 #include <mgba/internal/arm/emitter-arm.h>
 #include <mgba/internal/arm/isa-inlines.h>
+#include <mgba/gba/coverage.h>
+
+#include <stdio.h>
 
 #define PSR_USER_MASK   0xF0000000
 #define PSR_PRIV_MASK   0x000000CF
@@ -627,18 +630,36 @@ DEFINE_INSTRUCTION_ARM(B,
 	int32_t offset = opcode << 8;
 	offset >>= 6;
 	cpu->gprs[ARM_PC] += offset;
+
+    // Coverage
+    if(covfd_G != NULL) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	currentCycles += ARMWritePC(cpu);)
 
 DEFINE_INSTRUCTION_ARM(BL,
 	int32_t immediate = (opcode & 0x00FFFFFF) << 8;
 	cpu->gprs[ARM_LR] = cpu->gprs[ARM_PC] - WORD_SIZE_ARM;
 	cpu->gprs[ARM_PC] += immediate >> 6;
+
+    // Coverage
+    if(covfd_G != NULL) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	currentCycles += ARMWritePC(cpu);)
 
 DEFINE_INSTRUCTION_ARM(BX,
 	int rm = opcode & 0x0000000F;
 	_ARMSetMode(cpu, cpu->gprs[rm] & 0x00000001);
 	cpu->gprs[ARM_PC] = cpu->gprs[rm] & 0xFFFFFFFE;
+    
+    // Coverage
+    if(covfd_G != NULL && rm != ARM_LR) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	if (cpu->executionMode == MODE_THUMB) {
 		currentCycles += ThumbWritePC(cpu);
 	} else {

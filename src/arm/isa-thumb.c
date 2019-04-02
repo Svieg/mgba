@@ -8,6 +8,8 @@
 #include <mgba/internal/arm/isa-inlines.h>
 #include <mgba/internal/arm/emitter-thumb.h>
 
+#include <mgba/gba/coverage.h>
+
 // Instruction definitions
 // Beware pre-processor insanity
 
@@ -312,6 +314,9 @@ DEFINE_LOAD_STORE_MULTIPLE_THUMB(STMIA,
 		if (ARM_COND_ ## COND) { \
 			int8_t immediate = opcode; \
 			cpu->gprs[ARM_PC] += (int32_t) immediate << 1; \
+            if(covfd_G != NULL) { \
+                fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]); \
+            } \
 			currentCycles += ThumbWritePC(cpu); \
 		})
 
@@ -371,6 +376,12 @@ DEFINE_INSTRUCTION_THUMB(BKPT, cpu->irqh.bkpt16(cpu, opcode & 0xFF);)
 DEFINE_INSTRUCTION_THUMB(B,
 	int16_t immediate = (opcode & 0x07FF) << 5;
 	cpu->gprs[ARM_PC] += (((int32_t) immediate) >> 4);
+
+    // Coverage
+    if(covfd_G != NULL) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	currentCycles += ThumbWritePC(cpu);)
 
 DEFINE_INSTRUCTION_THUMB(BL1,
@@ -381,6 +392,11 @@ DEFINE_INSTRUCTION_THUMB(BL2,
 	uint16_t immediate = (opcode & 0x07FF) << 1;
 	uint32_t pc = cpu->gprs[ARM_PC];
 	cpu->gprs[ARM_PC] = cpu->gprs[ARM_LR] + immediate;
+
+    if(covfd_G != NULL) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	cpu->gprs[ARM_LR] = pc - 1;
 	currentCycles += ThumbWritePC(cpu);)
 
@@ -392,6 +408,11 @@ DEFINE_INSTRUCTION_THUMB(BX,
 		misalign = cpu->gprs[rm] & 0x00000002;
 	}
 	cpu->gprs[ARM_PC] = (cpu->gprs[rm] & 0xFFFFFFFE) - misalign;
+
+    if(covfd_G != NULL && rm != ARM_LR) {
+        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
+    }
+
 	if (cpu->executionMode == MODE_THUMB) {
 		currentCycles += ThumbWritePC(cpu);
 	} else {
