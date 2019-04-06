@@ -1,8 +1,11 @@
 #ifndef COVERAGE_H
 #define COVERAGE_H
 
-#include <stdio.h>
+#include <stdint.h>
+#include <mgba/gba/map.h>
 
-extern FILE* covfd_G;
+extern map_i32 covmap;
+extern int covmap_started;
 
+void cov_add_addr(int32_t addr);
 #endif

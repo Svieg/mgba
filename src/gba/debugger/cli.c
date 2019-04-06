@@ -14,6 +14,7 @@
 
 #include <stdio.h>
 #include <mgba/gba/coverage.h>
+#include <mgba/gba/map.h>
 
 static void _GBACLIDebuggerInit(struct CLIDebuggerSystem*);
 static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem*);
@@ -74,34 +75,50 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 static void _coverageStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     struct CLIDebuggerBackend* be = dbg->backend;
 
-    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
-        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
-        return;
-    }
-    
-    char* path = dv->charValue;
-    
-    // Here we use a global variable, because it is a quick and dirty code
-    // coverage tool.
-    if((covfd_G = fopen(path, "w")) == NULL) {
-        be->printf(be, "Couldn't open file '%s'\n'", path);
+    if(covmap_started == 1) {
+        be->printf(be, "Coverage analysis already running\n");
         return;
     }
 
-    be->printf(be, "Outputing coverage data in '%s'\n", path);
+    be->printf(be, "Starting code coverage analysis\n");
+
+    covmap_started = 1;
+    map_init(&covmap);
 }
 
 static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     struct CLIDebuggerBackend* be = dbg->backend;
 
-    if(covfd_G == NULL) {
+    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+
+    if(covmap_started == 0) {
         be->printf(be, "Coverage was not started\n");
         return;
     }
 
+    char *path = dv->charValue;
+    FILE* fp;
+
+    if((fp = fopen(path, "w")) == NULL) {
+        be->printf(be, "Could not open file '%s'\n", path);
+    }
+
+    if(covmap_started == 1) {
+        const char* bbAddr;
+        map_iter_t iter = map_iter(&covmap);
+
+        while((bbAddr = map_next(&covmap, &iter))) {
+            fprintf(fp, "%s\n", bbAddr);
+        }
+
+        map_deinit(&covmap);
+        fclose(fp);
+    }
+
     be->printf(be, "Stopping code coverage analysis\n");
-    fclose(covfd_G);
-    covfd_G = NULL;
 }
 
 static void _frame(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {

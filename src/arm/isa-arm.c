@@ -630,11 +630,9 @@ DEFINE_INSTRUCTION_ARM(B,
 	int32_t offset = opcode << 8;
 	offset >>= 6;
 	cpu->gprs[ARM_PC] += offset;
-
+    
     // Coverage
-    if(covfd_G != NULL) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	currentCycles += ARMWritePC(cpu);)
 
@@ -644,9 +642,7 @@ DEFINE_INSTRUCTION_ARM(BL,
 	cpu->gprs[ARM_PC] += immediate >> 6;
 
     // Coverage
-    if(covfd_G != NULL) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	currentCycles += ARMWritePC(cpu);)
 
@@ -656,9 +652,7 @@ DEFINE_INSTRUCTION_ARM(BX,
 	cpu->gprs[ARM_PC] = cpu->gprs[rm] & 0xFFFFFFFE;
     
     // Coverage
-    if(covfd_G != NULL && rm != ARM_LR) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	if (cpu->executionMode == MODE_THUMB) {
 		currentCycles += ThumbWritePC(cpu);

@@ -314,9 +314,7 @@ DEFINE_LOAD_STORE_MULTIPLE_THUMB(STMIA,
 		if (ARM_COND_ ## COND) { \
 			int8_t immediate = opcode; \
 			cpu->gprs[ARM_PC] += (int32_t) immediate << 1; \
-            if(covfd_G != NULL) { \
-                fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]); \
-            } \
+            cov_add_addr(cpu->gprs[ARM_PC]); \
 			currentCycles += ThumbWritePC(cpu); \
 		})
 
@@ -378,9 +376,7 @@ DEFINE_INSTRUCTION_THUMB(B,
 	cpu->gprs[ARM_PC] += (((int32_t) immediate) >> 4);
 
     // Coverage
-    if(covfd_G != NULL) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	currentCycles += ThumbWritePC(cpu);)
 
@@ -393,9 +389,8 @@ DEFINE_INSTRUCTION_THUMB(BL2,
 	uint32_t pc = cpu->gprs[ARM_PC];
 	cpu->gprs[ARM_PC] = cpu->gprs[ARM_LR] + immediate;
 
-    if(covfd_G != NULL) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    // Coverage
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	cpu->gprs[ARM_LR] = pc - 1;
 	currentCycles += ThumbWritePC(cpu);)
@@ -408,10 +403,9 @@ DEFINE_INSTRUCTION_THUMB(BX,
 		misalign = cpu->gprs[rm] & 0x00000002;
 	}
 	cpu->gprs[ARM_PC] = (cpu->gprs[rm] & 0xFFFFFFFE) - misalign;
-
-    if(covfd_G != NULL && rm != ARM_LR) {
-        fprintf(covfd_G, "0x%08x\n", cpu->gprs[ARM_PC]);
-    }
+    
+    // Coverage
+    cov_add_addr(cpu->gprs[ARM_PC]);
 
 	if (cpu->executionMode == MODE_THUMB) {
 		currentCycles += ThumbWritePC(cpu);
