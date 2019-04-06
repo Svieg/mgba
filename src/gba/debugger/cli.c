@@ -104,6 +104,7 @@ static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
 
     if((fp = fopen(path, "w")) == NULL) {
         be->printf(be, "Could not open file '%s'\n", path);
+        return;
     }
 
     if(covmap_started == 1) {

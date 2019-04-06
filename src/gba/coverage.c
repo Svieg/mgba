@@ -22,7 +22,7 @@ static void i32_to_hex(int32_t number, char* buffer)
 
 void cov_add_addr(int32_t addr)
 {
-    if(covmap_started) {
+    if(covmap_started > 0) {
         char key[11];
         key[10] = '\0';
         key[0] = '0';
