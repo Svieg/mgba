@@ -112,7 +112,8 @@ static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
         map_iter_t iter = map_iter(&covmap);
 
         while((bbAddr = map_next(&covmap, &iter))) {
-            fprintf(fp, "%s\n", bbAddr);
+            int* bbCount = map_get(&covmap, bbAddr);
+            fprintf(fp, "%s %i\n", bbAddr, *bbCount);
         }
 
         map_deinit(&covmap);
