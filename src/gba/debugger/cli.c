@@ -117,6 +117,8 @@ static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
 
         map_deinit(&covmap);
         fclose(fp);
+
+        covmap_started = 0;
     }
 
     be->printf(be, "Stopping code coverage analysis\n");
