@@ -316,7 +316,9 @@ DEFINE_LOAD_STORE_MULTIPLE_THUMB(STMIA,
 			cpu->gprs[ARM_PC] += (int32_t) immediate << 1; \
             cov_add_addr(cpu->gprs[ARM_PC]); \
 			currentCycles += ThumbWritePC(cpu); \
-		})
+		} else {\
+            cov_add_addr(cpu->gprs[ARM_PC] + 2); \
+        })
 
 DEFINE_CONDITIONAL_BRANCH_THUMB(EQ)
 DEFINE_CONDITIONAL_BRANCH_THUMB(NE)
