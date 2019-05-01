@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <mgba/gba/coverage.h>
 #include <mgba/gba/map.h>
+#include <alttp/entity.h>
 
 static void _GBACLIDebuggerInit(struct CLIDebuggerSystem*);
 static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem*);
@@ -25,13 +26,17 @@ static void _save(struct CLIDebugger*, struct CLIDebugVector*);
 
 static void _coverageStart(struct CLIDebugger*, struct CLIDebugVector*);
 static void _coverageStop(struct CLIDebugger*, struct CLIDebugVector*);
+static void _showEntities(struct CLIDebugger*, struct CLIDebugVector*);
+static void _dumpWorkmem(struct CLIDebugger*, struct CLIDebugVector*);
 
 struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
 	{ "frame", _frame, "", "Frame advance" },
 	{ "load", _load, "*", "Load a savestate" },
 	{ "save", _save, "*", "Save a savestate" },
-    { "coverage-start", _coverageStart, "S", "Starts a coverage analysis"},
+    { "coverage-start", _coverageStart, "", "Starts a coverage analysis"},
     { "coverage-stop", _coverageStop, "S", "Stops a coverage analysis and writes the file"},
+    { "show-entities", _showEntities, "", "Shows status info about current entities"},
+    { "dump-workmem", _dumpWorkmem, "S", "Dumps the working memory of the emulator"},
 	{ 0, 0, 0, 0 }
 };
 
@@ -73,6 +78,7 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 
 // Code coverage stuff
 static void _coverageStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    UNUSED(dv);
     struct CLIDebuggerBackend* be = dbg->backend;
 
     if(covmap_started == 1) {
@@ -123,6 +129,84 @@ static void _coverageStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     }
 
     be->printf(be, "Stopping code coverage analysis\n");
+}
+
+// Entities stuff
+static void _gba_mem_read(struct CLIDebugger* dbg, uint32_t offset, uint32_t len, uint8_t* buff) {
+    for(uint32_t i = 0; i < len; i++) {
+        buff[i] = dbg->d.core->busRead8(dbg->d.core, offset + i);
+    }
+}
+
+static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    UNUSED(dv);
+    const uint32_t entity_id_addr = 0x3003222;
+    const uint32_t entity_hp_addr = 0x3003252;
+    const uint32_t entity_low_y_pos = 0x3003100;
+    const uint32_t entity_high_y_pos = 0x3003120;
+    const uint32_t entity_low_x_pos = 0x3003110;
+    const uint32_t entity_high_x_pos = 0x3003130;
+    
+    struct CLIDebuggerBackend* be = dbg->backend;
+    
+    uint8_t entity_ids[16] = {0};
+    uint8_t entity_hps[16] = {0};
+    uint8_t entity_low_xpos[16] = {0};
+    uint8_t entity_high_xpos[16] = {0};
+    uint8_t entity_low_ypos[16] = {0};
+    uint8_t entity_high_ypos[16] = {0};
+
+    _gba_mem_read(dbg, entity_id_addr, sizeof(entity_ids), entity_ids);
+    _gba_mem_read(dbg, entity_hp_addr, sizeof(entity_ids), entity_hps);
+    _gba_mem_read(dbg, entity_low_x_pos, sizeof(entity_low_xpos), entity_low_xpos);
+    _gba_mem_read(dbg, entity_low_y_pos, sizeof(entity_low_ypos), entity_low_ypos);
+    _gba_mem_read(dbg, entity_high_x_pos, sizeof(entity_high_xpos), entity_high_xpos);
+    _gba_mem_read(dbg, entity_high_y_pos, sizeof(entity_high_ypos), entity_high_ypos);
+
+
+    be->printf(be, "--- Game Entities ---\n");
+    for(int i = 0; i < 16; i++) {
+        const char* cur_name = EntityNames[entity_ids[i]];
+        cur_name = (cur_name) ? cur_name : "unknown";
+
+        uint16_t xpos = entity_high_xpos[i] << 8 | entity_low_xpos[i];
+        uint16_t ypos = entity_high_ypos[i] << 8 | entity_low_ypos[i];
+
+        be->printf(be, "IDX: %3u X = %5u Y = %5u HP = %3u ID = 0x%02x NAME = %s\n",
+                i,
+                xpos,
+                ypos,
+                entity_hps[i],
+                entity_ids[i],
+                cur_name);
+    }
+}
+
+static void _dumpWorkmem(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+
+    char* path = dv->charValue;
+    uint8_t* ramCopy = malloc(0x8000);
+    
+    // We copy the internal working ram (IRAM), because this is where the interesting
+    // values seems to be.
+    _gba_mem_read(dbg, 0x3000000, 0x8000, ramCopy);
+
+    FILE* fp = fopen(path, "wb");
+
+    if(fp == NULL) {
+        be->printf(be, "Could not open file '%s'\n", path);
+        return;
+    }
+
+    fwrite(ramCopy, 0x8000, 1, fp);
+    free(ramCopy);
+    fclose(fp);
 }
 
 static void _frame(struct CLIDebugger* debugger, struct CLIDebugVector* dv) {
