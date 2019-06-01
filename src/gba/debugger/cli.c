@@ -172,7 +172,7 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
         uint16_t xpos = entity_high_xpos[i] << 8 | entity_low_xpos[i];
         uint16_t ypos = entity_high_ypos[i] << 8 | entity_low_ypos[i];
 
-        be->printf(be, "IDX: %3u X = %5u Y = %5u HP = %3u ID = 0x%02x NAME = %s\n",
+        be->printf(be, "ID: %3u X = %5u Y = %5u HP = %3u TYPE_ID = 0x%02x NAME = %s\n",
                 i,
                 xpos,
                 ypos,
