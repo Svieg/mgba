@@ -204,6 +204,9 @@ void ARMRaiseUndefined(struct ARMCore* cpu) {
 
 static inline void ARMStep(struct ARMCore* cpu) {
 	uint32_t opcode = cpu->prefetch[0];
+
+    cpurec_step(opcode, cpu->gprs);
+
 	cpu->prefetch[0] = cpu->prefetch[1];
 	cpu->gprs[ARM_PC] += WORD_SIZE_ARM;
 	LOAD_32(cpu->prefetch[1], cpu->gprs[ARM_PC] & cpu->memory.activeMask, cpu->memory.activeRegion);

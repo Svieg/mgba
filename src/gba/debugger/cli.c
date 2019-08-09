@@ -24,6 +24,8 @@ static void _frame(struct CLIDebugger*, struct CLIDebugVector*);
 static void _load(struct CLIDebugger*, struct CLIDebugVector*);
 static void _save(struct CLIDebugger*, struct CLIDebugVector*);
 
+static void _cpurecStart(struct CLIDebugger*, struct CLIDebugVector*);
+static void _cpurecStop(struct CLIDebugger*, struct CLIDebugVector*);
 static void _blStop(struct CLIDebugger*, struct CLIDebugVector*);
 static void _blStart(struct CLIDebugger*, struct CLIDebugVector*);
 static void _coverageStart(struct CLIDebugger*, struct CLIDebugVector*);
@@ -39,6 +41,8 @@ struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
     { "coverage-stop", _coverageStop, "S", "Stops a coverage analysis and writes the file"},
     { "bl-start", _blStart, "", "Starts a call recording session"},
     { "bl-stop", _blStop, "S", "Stops a call recording session a writes the file"},
+    { "cpurec-start", _cpurecStart, "S", "Starts recording the full execution state"},
+    { "cpurec-stop", _cpurecStop, "", "Saves the recorded execution state"},
     { "show-entities", _showEntities, "", "Shows status info about current entities"},
     { "dump-workmem", _dumpWorkmem, "S", "Dumps the working memory of the emulator"},
 	{ 0, 0, 0, 0 }
@@ -78,6 +82,45 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 		return true;
 	}
 	return false;
+}
+
+// State recording stuff
+static void _cpurecStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(cpurec_started == 1) {
+        be->printf(be, "Trace recording already running\n");
+        return;
+    }
+
+    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+
+    if((cpurec_file = fopen(dv->charValue, "wb")) == NULL) {
+        be->printf(be, "Could not open output file\n");
+        return;
+    }
+
+    cpurec_started = 1;
+
+    for(int i = 0; i < 16; i++)
+        old_gprs[i] = 0;
+}
+
+static void _cpurecStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    UNUSED(dv);
+
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(cpurec_started == 0) {
+        be->printf(be, "Trace recording not started\n");
+        return;
+    }
+
+    fclose(cpurec_file);
+    cpurec_file = NULL;
 }
 
 // BL recording stuff
