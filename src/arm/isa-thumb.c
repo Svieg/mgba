@@ -393,6 +393,7 @@ DEFINE_INSTRUCTION_THUMB(BL2,
 
     // Coverage
     cov_add_addr(cpu->gprs[ARM_PC]);
+    bl_add_addr(cpu->gprs[ARM_PC]);
 
 	cpu->gprs[ARM_LR] = pc - 1;
 	currentCycles += ThumbWritePC(cpu);)

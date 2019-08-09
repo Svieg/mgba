@@ -4,8 +4,9 @@
 #include <mgba/gba/map.h>
 
 map_i32 covmap;
+map_i32 blmap;
 int covmap_started = 0;
-
+int blmap_started = 0;
 
 static void i32_to_hex(int32_t number, char* buffer)
 {
@@ -35,6 +36,25 @@ void cov_add_addr(int32_t addr)
             map_set(&covmap, key, *val + 1);
         } else {
             map_set(&covmap, key, 1);
+        }
+    }
+}
+
+void bl_add_addr(int32_t addr)
+{
+    if(blmap_started > 0) {
+        char key[11];
+        key[10] = '\0';
+        key[0] = '0';
+        key[1] = 'x';
+        i32_to_hex(addr, key + 2);
+
+        int32_t* val = map_get(&blmap, key);
+
+        if(val) {
+            map_set(&blmap, key, *val + 1);
+        } else {
+            map_set(&blmap, key, 1);
         }
     }
 }

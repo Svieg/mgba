@@ -24,6 +24,8 @@ static void _frame(struct CLIDebugger*, struct CLIDebugVector*);
 static void _load(struct CLIDebugger*, struct CLIDebugVector*);
 static void _save(struct CLIDebugger*, struct CLIDebugVector*);
 
+static void _blStop(struct CLIDebugger*, struct CLIDebugVector*);
+static void _blStart(struct CLIDebugger*, struct CLIDebugVector*);
 static void _coverageStart(struct CLIDebugger*, struct CLIDebugVector*);
 static void _coverageStop(struct CLIDebugger*, struct CLIDebugVector*);
 static void _showEntities(struct CLIDebugger*, struct CLIDebugVector*);
@@ -35,6 +37,8 @@ struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
 	{ "save", _save, "*", "Save a savestate" },
     { "coverage-start", _coverageStart, "", "Starts a coverage analysis"},
     { "coverage-stop", _coverageStop, "S", "Stops a coverage analysis and writes the file"},
+    { "bl-start", _blStart, "", "Starts a call recording session"},
+    { "bl-stop", _blStop, "S", "Stops a call recording session a writes the file"},
     { "show-entities", _showEntities, "", "Shows status info about current entities"},
     { "dump-workmem", _dumpWorkmem, "S", "Dumps the working memory of the emulator"},
 	{ 0, 0, 0, 0 }
@@ -74,6 +78,61 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 		return true;
 	}
 	return false;
+}
+
+// BL recording stuff
+static void _blStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    UNUSED(dv);
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(blmap_started == 1) {
+        be->printf(be, "BL recording already running\n");
+        return;
+    }
+
+    be->printf(be, "Starting BL recording\n");
+
+    blmap_started = 1;
+    map_init(&blmap);
+}
+
+static void _blStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+
+    if(blmap_started == 0) {
+        be->printf(be, "BL recording was not started\n");
+        return;
+    }
+
+    char* path = dv->charValue;
+    FILE* fp;
+
+    if((fp = fopen(path, "w")) == NULL) {
+        be->printf(be, "Could not open file '%s'\n", path);
+        return;
+    }
+
+    if(blmap_started == 1) {
+        const char* bbAddr;
+        map_iter_t iter = map_iter(&blmap);
+
+        while((bbAddr = map_next(&blmap, &iter))) {
+            int* blcount = map_get(&blmap, bbAddr);
+            fprintf(fp, "%s %i\n", bbAddr, *blcount);
+        }
+
+        map_deinit(&blmap);
+        fclose(fp);
+
+        blmap_started = 0;
+    }
+
+    be->printf(be, "Stopping BL recording\n");
 }
 
 // Code coverage stuff
