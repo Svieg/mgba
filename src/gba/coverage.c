@@ -80,7 +80,7 @@ void cpurec_step(uint32_t instruction, uint32_t* gprs)
 
         // Updating our gprs
         for(int i = 0; i < 16; i++) {
-            if(bitmask & (1 << i))
+            if(gprs[i] != old_gprs[i])
                 fwrite(&gprs[i], sizeof(uint32_t), 1, cpurec_file);
 
             old_gprs[i] = gprs[i];
