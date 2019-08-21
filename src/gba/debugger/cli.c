@@ -244,13 +244,13 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     UNUSED(dv);
     const uint32_t entity_id_addr = 0x3003222;
     const uint32_t entity_hp_addr = 0x3003252;
-    const uint32_t entity_low_y_pos = 0x3003100;
-    const uint32_t entity_high_y_pos = 0x3003120;
-    const uint32_t entity_low_x_pos = 0x3003110;
-    const uint32_t entity_high_x_pos = 0x3003130;
-    
+    const uint32_t entity_low_y_pos = 0x3003102;
+    const uint32_t entity_high_y_pos = 0x3003122;
+    const uint32_t entity_low_x_pos = 0x3003112;
+    const uint32_t entity_high_x_pos = 0x3003132;
+
     struct CLIDebuggerBackend* be = dbg->backend;
-    
+
     uint8_t entity_ids[16] = {0};
     uint8_t entity_hps[16] = {0};
     uint8_t entity_low_xpos[16] = {0};

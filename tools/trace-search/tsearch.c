@@ -117,6 +117,21 @@ static int match_filter(char* filter, uint32_t* ins, uint32_t* gprs)
             return 0;
         }
 
+        // Match any register
+        if(strcmp(key, "rXX") == 0) {
+            int matched = 0;
+            uint32_t target = parse_number(val);
+
+            for(int i = 0; i < 16; i++) {
+                if(gprs[i] == target)
+                    matched = 1;
+            }
+
+            // If nothing was found then we return fail
+            if(matched == 0)
+                return 0;
+        }
+
         // Reg matching
         int reg_idx = reg_to_idx(key);
 
