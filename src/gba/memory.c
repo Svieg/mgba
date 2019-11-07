@@ -11,6 +11,7 @@
 #include <mgba/internal/gba/dma.h>
 #include <mgba/internal/gba/io.h>
 #include <mgba/internal/gba/serialize.h>
+#include <mgba/gba/memtrace.h>
 #include "gba/hle-bios.h"
 
 #include <mgba-util/math.h>
@@ -482,7 +483,11 @@ uint32_t GBALoad32(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
 	}
 	// Unaligned 32-bit loads are "rotated" so they make some semblance of sense
 	int rotate = (address & 3) << 3;
-	return ROR(value, rotate);
+	uint32_t ret = ROR(value, rotate);
+
+    memtrace_log_read(MEMTRACE_READ32, cpu->gprs[ARM_PC], address, ret);
+
+    return ret;
 }
 
 uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
@@ -593,7 +598,11 @@ uint32_t GBALoad16(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
 	}
 	// Unaligned 16-bit loads are "unpredictable", but the GBA rotates them, so we have to, too.
 	int rotate = (address & 1) << 3;
-	return ROR(value, rotate);
+	uint16_t ret = ROR(value, rotate);
+
+    memtrace_log_read(MEMTRACE_READ16, cpu->gprs[ARM_PC], address, ret);
+
+    return ret;
 }
 
 uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
@@ -694,6 +703,9 @@ uint32_t GBALoad8(struct ARMCore* cpu, uint32_t address, int* cycleCounter) {
 		}
 		*cycleCounter += wait;
 	}
+
+    memtrace_log_read(MEMTRACE_READ8, cpu->gprs[ARM_PC], address, value);
+
 	return value;
 }
 
@@ -813,6 +825,8 @@ void GBAStore32(struct ARMCore* cpu, uint32_t address, int32_t value, int* cycle
 		}
 		*cycleCounter += wait;
 	}
+
+    memtrace_log_write(MEMTRACE_WRITE32, cpu->gprs[ARM_PC], address, value);
 }
 
 void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycleCounter) {
@@ -915,6 +929,8 @@ void GBAStore16(struct ARMCore* cpu, uint32_t address, int16_t value, int* cycle
 		}
 		*cycleCounter += wait;
 	}
+
+    memtrace_log_write(MEMTRACE_WRITE16, cpu->gprs[ARM_PC], address, value);
 }
 
 void GBAStore8(struct ARMCore* cpu, uint32_t address, int8_t value, int* cycleCounter) {
@@ -994,6 +1010,8 @@ void GBAStore8(struct ARMCore* cpu, uint32_t address, int8_t value, int* cycleCo
 		}
 		*cycleCounter += wait;
 	}
+
+    memtrace_log_write(MEMTRACE_WRITE8, cpu->gprs[ARM_PC], address, value);
 }
 
 uint32_t GBAView32(struct ARMCore* cpu, uint32_t address) {

@@ -15,6 +15,7 @@
 #include <stdio.h>
 #include <mgba/gba/coverage.h>
 #include <mgba/gba/map.h>
+#include <mgba/gba/memtrace.h>
 #include <alttp/entity.h>
 
 static void _GBACLIDebuggerInit(struct CLIDebuggerSystem*);
@@ -32,6 +33,8 @@ static void _coverageStart(struct CLIDebugger*, struct CLIDebugVector*);
 static void _coverageStop(struct CLIDebugger*, struct CLIDebugVector*);
 static void _showEntities(struct CLIDebugger*, struct CLIDebugVector*);
 static void _dumpWorkmem(struct CLIDebugger*, struct CLIDebugVector*);
+static void _memtraceStart(struct CLIDebugger*, struct CLIDebugVector*);
+static void _memtraceStop(struct CLIDebugger*, struct CLIDebugVector*);
 
 struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
 	{ "frame", _frame, "", "Frame advance" },
@@ -43,6 +46,8 @@ struct CLIDebuggerCommandSummary _GBACLIDebuggerCommands[] = {
     { "bl-stop", _blStop, "S", "Stops a call recording session a writes the file"},
     { "cpurec-start", _cpurecStart, "S", "Starts recording the full execution state"},
     { "cpurec-stop", _cpurecStop, "", "Saves the recorded execution state"},
+    { "memtrace-start", _memtraceStart, "S", "Starts memory access recording" },
+    { "memtrace-stop", _memtraceStop, "", "Stops memory access recording" },
     { "show-entities", _showEntities, "", "Shows status info about current entities"},
     { "dump-workmem", _dumpWorkmem, "S", "Dumps the working memory of the emulator"},
 	{ 0, 0, 0, 0 }
@@ -82,6 +87,39 @@ static bool _GBACLIDebuggerCustom(struct CLIDebuggerSystem* debugger) {
 		return true;
 	}
 	return false;
+}
+
+// Memory access recording
+static void _memtraceStart(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if (memtrace_is_tracing())
+    {
+        be->printf(be, "Trace recording already started\n");
+        return;
+    }
+
+    if (!dv || dv->type != CLIDV_CHAR_TYPE) {
+        be->printf(be, "%s\n", ERROR_MISSING_ARGS);
+        return;
+    }
+
+    if (memtrace_record(dv->charValue) == -1) {
+        be->printf(be, "Could not open output file\n");
+    }
+}
+
+static void _memtraceStop(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
+    UNUSED(dv);
+
+    struct CLIDebuggerBackend* be = dbg->backend;
+
+    if(!memtrace_is_tracing()) {
+        be->printf(be, "Trace recording not started\n");
+        return;
+    }
+
+    memtrace_stop();
 }
 
 // State recording stuff
@@ -248,6 +286,9 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     const uint32_t entity_high_y_pos = 0x3003122;
     const uint32_t entity_low_x_pos = 0x3003112;
     const uint32_t entity_high_x_pos = 0x3003132;
+    const uint32_t entity_map_id_addr = 0x3003095;
+    const uint32_t link_x_pos_addr = 0x30038f4;
+    const uint32_t link_y_pos_addr = 0x30038f0;
 
     struct CLIDebuggerBackend* be = dbg->backend;
 
@@ -257,6 +298,9 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     uint8_t entity_high_xpos[16] = {0};
     uint8_t entity_low_ypos[16] = {0};
     uint8_t entity_high_ypos[16] = {0};
+    uint8_t entity_map_id[16] = {0};
+    uint16_t link_x_pos = 0;
+    uint16_t link_y_pos = 0;
 
     _gba_mem_read(dbg, entity_id_addr, sizeof(entity_ids), entity_ids);
     _gba_mem_read(dbg, entity_hp_addr, sizeof(entity_ids), entity_hps);
@@ -264,9 +308,14 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
     _gba_mem_read(dbg, entity_low_y_pos, sizeof(entity_low_ypos), entity_low_ypos);
     _gba_mem_read(dbg, entity_high_x_pos, sizeof(entity_high_xpos), entity_high_xpos);
     _gba_mem_read(dbg, entity_high_y_pos, sizeof(entity_high_ypos), entity_high_ypos);
+    _gba_mem_read(dbg, entity_map_id_addr, sizeof(entity_map_id), entity_map_id);
+    _gba_mem_read(dbg, link_x_pos_addr, sizeof(link_x_pos), &link_x_pos);
+    _gba_mem_read(dbg, link_y_pos_addr, sizeof(link_y_pos), &link_y_pos);
 
-
+    be->printf(be, "--- Link ---\n");
+    be->printf(be, "X = %5u Y = %5u\n", link_x_pos, link_y_pos);
     be->printf(be, "--- Game Entities ---\n");
+
     for(int i = 0; i < 16; i++) {
         const char* cur_name = EntityNames[entity_ids[i]];
         cur_name = (cur_name) ? cur_name : "unknown";
@@ -274,7 +323,8 @@ static void _showEntities(struct CLIDebugger* dbg, struct CLIDebugVector* dv) {
         uint16_t xpos = entity_high_xpos[i] << 8 | entity_low_xpos[i];
         uint16_t ypos = entity_high_ypos[i] << 8 | entity_low_ypos[i];
 
-        be->printf(be, "ID: %3u X = %5u Y = %5u HP = %3u TYPE_ID = 0x%02x NAME = %s\n",
+        be->printf(be, "MAP: %3d ID: %3u X = %5u Y = %5u HP = %3u TYPE_ID = 0x%02x NAME = %s\n",
+                entity_map_id[i],
                 i,
                 xpos,
                 ypos,
