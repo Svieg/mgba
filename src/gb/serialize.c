@@ -7,7 +7,7 @@
 
 #include <mgba/internal/gb/io.h>
 #include <mgba/internal/gb/timer.h>
-#include <mgba/internal/lr35902/lr35902.h>
+#include <mgba/internal/sm83/sm83.h>
 
 #include <mgba-util/memory.h>
 
@@ -16,13 +16,11 @@ mLOG_DEFINE_CATEGORY(GB_STATE, "GB Savestate", "gb.serialize");
 const uint32_t GB_SAVESTATE_MAGIC = 0x00400000;
 const uint32_t GB_SAVESTATE_VERSION = 0x00000002;
 
-static void GBSGBSerialize(struct GB* gb, struct GBSerializedState* state);
-static void GBSGBDeserialize(struct GB* gb, const struct GBSerializedState* state);
-
 void GBSerialize(struct GB* gb, struct GBSerializedState* state) {
 	STORE_32LE(GB_SAVESTATE_MAGIC + GB_SAVESTATE_VERSION, 0, &state->versionMagic);
 	STORE_32LE(gb->romCrc32, 0, &state->romCrc32);
 	STORE_32LE(gb->timing.masterCycles, 0, &state->masterCycles);
+	STORE_64LE(gb->timing.globalCycles, 0, &state->globalCycles);
 
 	if (gb->memory.rom) {
 		memcpy(state->title, ((struct GBCartridge*) &gb->memory.rom[0x100])->titleLong, sizeof(state->title));
@@ -55,6 +53,8 @@ void GBSerialize(struct GB* gb, struct GBSerializedState* state) {
 	flags = GBSerializedCpuFlagsSetIrqPending(flags, gb->cpu->irqPending);
 	flags = GBSerializedCpuFlagsSetDoubleSpeed(flags, gb->doubleSpeed);
 	flags = GBSerializedCpuFlagsSetEiPending(flags, mTimingIsScheduled(&gb->timing, &gb->eiPending));
+	flags = GBSerializedCpuFlagsSetHalted(flags, gb->cpu->halted);
+	flags = GBSerializedCpuFlagsSetBlocked(flags, gb->cpuBlocked);
 	STORE_32LE(flags, 0, &state->cpu.flags);
 	STORE_32LE(gb->eiPending.when - mTimingCurrentTime(&gb->timing), 0, &state->cpu.eiPending);
 
@@ -104,11 +104,11 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 		mLOG(GB_STATE, WARN, "Savestate is corrupted: CPU cycles are negative");
 		error = true;
 	}
-	if (state->cpu.executionState != LR35902_CORE_FETCH) {
+	if (state->cpu.executionState != SM83_CORE_FETCH) {
 		mLOG(GB_STATE, WARN, "Savestate is corrupted: Execution state is not FETCH");
 		error = true;
 	}
-	if (check >= (int32_t) DMG_LR35902_FREQUENCY) {
+	if (check >= (int32_t) DMG_SM83_FREQUENCY) {
 		mLOG(GB_STATE, WARN, "Savestate is corrupted: CPU cycles are too high");
 		error = true;
 	}
@@ -136,7 +136,7 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 		mLOG(GB_STATE, WARN, "Savestate is corrupted: OCPS is out of range");
 	}
 	bool differentBios = !gb->biosVf || gb->model != state->model;
-	if (state->io[0x50] == 0xFF) {
+	if (state->io[GB_REG_BANK] == 0xFF) {
 		if (differentBios) {
 			mLOG(GB_STATE, WARN, "Incompatible savestate, please restart with correct BIOS in %s mode", GBModelToName(state->model));
 			error = true;
@@ -150,6 +150,7 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 	}
 	mTimingClear(&gb->timing);
 	LOAD_32LE(gb->timing.masterCycles, 0, &state->masterCycles);
+	LOAD_64LE(gb->timing.globalCycles, 0, &state->globalCycles);
 
 	gb->cpu->a = state->cpu.a;
 	gb->cpu->f.packed = state->cpu.f;
@@ -171,6 +172,9 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 	gb->cpu->condition = GBSerializedCpuFlagsGetCondition(flags);
 	gb->cpu->irqPending = GBSerializedCpuFlagsGetIrqPending(flags);
 	gb->doubleSpeed = GBSerializedCpuFlagsGetDoubleSpeed(flags);
+	gb->cpu->halted = GBSerializedCpuFlagsGetHalted(flags);
+	gb->cpuBlocked = GBSerializedCpuFlagsGetBlocked(flags);
+
 	gb->audio.timingFactor = gb->doubleSpeed + 1;
 
 	LOAD_32LE(gb->cpu->cycles, 0, &state->cpu.cycles);
@@ -181,6 +185,8 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 	LOAD_32LE(when, 0, &state->cpu.eiPending);
 	if (GBSerializedCpuFlagsIsEiPending(flags)) {
 		mTimingSchedule(&gb->timing, &gb->eiPending, when);
+	} else {
+		gb->eiPending.when = when + mTimingCurrentTime(&gb->timing);
 	}
 
 	gb->model = state->model;
@@ -197,7 +203,7 @@ bool GBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 	GBTimerDeserialize(&gb->timer, state);
 	GBAudioDeserialize(&gb->audio, state);
 
-	if (gb->memory.io[0x50] == 0xFF) {
+	if (gb->memory.io[GB_REG_BANK] == 0xFF) {
 		GBMapBIOS(gb);
 	} else {
 		GBUnmapBIOS(gb);
@@ -225,6 +231,7 @@ void GBSGBSerialize(struct GB* gb, struct GBSerializedState* state) {
 	flags = GBSerializedSGBFlagsSetRenderMode(flags, gb->video.renderer->sgbRenderMode);
 	flags = GBSerializedSGBFlagsSetBufferIndex(flags, gb->video.sgbBufferIndex);
 	flags = GBSerializedSGBFlagsSetReqControllers(flags, gb->sgbControllers);
+	flags = GBSerializedSGBFlagsSetIncrement(flags, gb->sgbIncrement);
 	flags = GBSerializedSGBFlagsSetCurrentController(flags, gb->sgbCurrentController);
 	STORE_32LE(flags, 0, &state->sgb.flags);
 
@@ -246,7 +253,6 @@ void GBSGBSerialize(struct GB* gb, struct GBSerializedState* state) {
 	if (gb->video.renderer->sgbAttributes) {
 		memcpy(state->sgb.attributes, gb->video.renderer->sgbAttributes, sizeof(state->sgb.attributes));
 	}
-	gb->video.renderer->enableSGBBorder(gb->video.renderer, gb->video.sgbBorders);
 }
 
 void GBSGBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
@@ -260,6 +266,12 @@ void GBSGBDeserialize(struct GB* gb, const struct GBSerializedState* state) {
 	gb->video.sgbBufferIndex = GBSerializedSGBFlagsGetBufferIndex(flags);
 	gb->sgbControllers = GBSerializedSGBFlagsGetReqControllers(flags);
 	gb->sgbCurrentController = GBSerializedSGBFlagsGetCurrentController(flags);
+	gb->sgbIncrement = GBSerializedSGBFlagsGetIncrement(flags);
+
+	// Old versions of mGBA stored the increment bits here
+	if (gb->sgbBit > 129 && gb->sgbBit & 2) {
+		gb->sgbIncrement = true;
+	}
 
 	memcpy(gb->video.sgbPacketBuffer, state->sgb.packet, sizeof(state->sgb.packet));
 	memcpy(gb->sgbPacket, state->sgb.inProgressPacket, sizeof(state->sgb.inProgressPacket));

@@ -8,7 +8,10 @@
 #include "CoreController.h"
 #include "GBAApp.h"
 
+#include <QAction>
+#include <QClipboard>
 #include <QFontDatabase>
+#include <QListWidgetItem>
 #include <QTimer>
 
 #include "LogController.h"
@@ -41,6 +44,10 @@ ObjView::ObjView(std::shared_ptr<CoreController> controller, QWidget* parent)
 	m_ui.priority->setFont(font);
 	m_ui.palette->setFont(font);
 	m_ui.transform->setFont(font);
+	m_ui.xformPA->setFont(font);
+	m_ui.xformPB->setFont(font);
+	m_ui.xformPC->setFont(font);
+	m_ui.xformPD->setFont(font);
 	m_ui.mode->setFont(font);
 
 	connect(m_ui.tiles, &TilePainter::indexPressed, this, &ObjView::translateIndex);
@@ -52,10 +59,36 @@ ObjView::ObjView(std::shared_ptr<CoreController> controller, QWidget* parent)
 		updateTiles(true);
 	});
 	connect(m_ui.exportButton, &QAbstractButton::clicked, this, &ObjView::exportObj);
+	connect(m_ui.copyButton, &QAbstractButton::clicked, this, &ObjView::copyObj);
+
+	connect(m_ui.objList, &QListWidget::currentItemChanged, [this]() {
+		QListWidgetItem* item = m_ui.objList->currentItem();
+		if (item) {
+			selectObj(item->data(Qt::UserRole).toInt());
+		}
+	});
+
+	QAction* exportAction = new QAction(this);
+	exportAction->setShortcut(QKeySequence::Save);
+	connect(exportAction, &QAction::triggered, this, &ObjView::exportObj);
+	addAction(exportAction);
+
+	QAction* copyAction = new QAction(this);
+	copyAction->setShortcut(QKeySequence::Copy);
+	connect(copyAction, &QAction::triggered, this, &ObjView::copyObj);
+	addAction(copyAction);
 }
 
 void ObjView::selectObj(int obj) {
 	m_objId = obj;
+	bool blocked = m_ui.objId->blockSignals(true);
+	m_ui.objId->setValue(m_objId);
+	m_ui.objId->blockSignals(blocked);
+	if (m_objs.size() > obj) {
+		blocked = m_ui.objList->blockSignals(true);
+		m_ui.objList->setCurrentItem(m_objs[obj]);
+		m_ui.objList->blockSignals(blocked);
+	}
 	updateTiles(true);
 }
 
@@ -70,6 +103,8 @@ void ObjView::updateTilesGBA(bool force) {
 	m_ui.objId->setMaximum(127);
 	const GBA* gba = static_cast<const GBA*>(m_controller->thread()->core->board);
 	const GBAObj* obj = &gba->video.oam.obj[m_objId];
+
+	updateObjList(128);
 
 	ObjInfo newInfo;
 	lookupObj(m_objId, &newInfo);
@@ -89,6 +124,7 @@ void ObjView::updateTilesGBA(bool force) {
 		m_ui.palette->setText(QString::number(newInfo.paletteId));
 		m_ui.tile->setBoundary(2048, 0, 2);
 		m_ui.tile->setPalette(newInfo.paletteId);
+		m_boundary = 2048;
 	}
 	if (newInfo != m_objInfo) {
 		force = true;
@@ -125,9 +161,23 @@ void ObjView::updateTilesGBA(bool force) {
 	m_ui.mosaic->setChecked(GBAObjAttributesAIsMosaic(obj->a));
 
 	if (GBAObjAttributesAIsTransformed(obj->a)) {
-		m_ui.transform->setText(QString::number(GBAObjAttributesBGetMatIndex(obj->b)));
+		int mtxId = GBAObjAttributesBGetMatIndex(obj->b);
+		struct GBAOAMMatrix mat;
+		LOAD_16LE(mat.a, 0, &gba->video.oam.mat[mtxId].a);
+		LOAD_16LE(mat.b, 0, &gba->video.oam.mat[mtxId].b);
+		LOAD_16LE(mat.c, 0, &gba->video.oam.mat[mtxId].c);
+		LOAD_16LE(mat.d, 0, &gba->video.oam.mat[mtxId].d);
+		m_ui.transform->setText(QString::number(mtxId));
+		m_ui.xformPA->setText(QString("%0").arg(mat.a / 256., 5, 'f', 2));
+		m_ui.xformPB->setText(QString("%0").arg(mat.b / 256., 5, 'f', 2));
+		m_ui.xformPC->setText(QString("%0").arg(mat.c / 256., 5, 'f', 2));
+		m_ui.xformPD->setText(QString("%0").arg(mat.d / 256., 5, 'f', 2));
 	} else {
 		m_ui.transform->setText(tr("Off"));
+		m_ui.xformPA->setText(tr("---"));
+		m_ui.xformPB->setText(tr("---"));
+		m_ui.xformPC->setText(tr("---"));
+		m_ui.xformPD->setText(tr("---"));
 	}
 
 	switch (GBAObjAttributesAGetMode(obj->a)) {
@@ -152,6 +202,8 @@ void ObjView::updateTilesGB(bool force) {
 	m_ui.objId->setMaximum(39);
 	const GB* gb = static_cast<const GB*>(m_controller->thread()->core->board);
 	const GBObj* obj = &gb->video.oam.obj[m_objId];
+
+	updateObjList(40);
 
 	ObjInfo newInfo;
 	lookupObj(m_objId, &newInfo);
@@ -196,14 +248,46 @@ void ObjView::updateTilesGB(bool force) {
 	m_ui.doubleSize->setChecked(false);
 	m_ui.mosaic->setChecked(false);
 	m_ui.transform->setText(tr("N/A"));
+	m_ui.xformPA->setText(tr("---"));
+	m_ui.xformPB->setText(tr("---"));
+	m_ui.xformPC->setText(tr("---"));
+	m_ui.xformPD->setText(tr("---"));
 	m_ui.mode->setText(tr("N/A"));
 }
 #endif
 
+void ObjView::updateObjList(int maxObj) {
+	for (int i = 0; i < maxObj; ++i) {
+		if (m_objs.size() <= i) {
+			QListWidgetItem* item = new QListWidgetItem;
+			item->setText(QString::number(i));
+			item->setData(Qt::UserRole, i);
+			item->setSizeHint(QSize(64, 96));
+			if (m_objId == i) {
+				item->setSelected(true);
+			}
+			m_objs.append(item);
+			m_ui.objList->addItem(item);
+		}
+		QListWidgetItem* item = m_objs[i];
+		ObjInfo info;
+		lookupObj(i, &info);
+		item->setIcon(QPixmap::fromImage(std::move(compositeObj(info))));
+	}
+}
+
 void ObjView::exportObj() {
 	QString filename = GBAApp::app()->getSaveFileName(this, tr("Export sprite"),
 	                                                  tr("Portable Network Graphics (*.png)"));
+	if (filename.isNull()) {
+		return;
+	}
 	CoreController::Interrupter interrupter(m_controller);
 	QImage obj = compositeObj(m_objInfo);
 	obj.save(filename, "PNG");
+}
+
+void ObjView::copyObj() {
+	CoreController::Interrupter interrupter(m_controller);
+	GBAApp::app()->clipboard()->setImage(compositeObj(m_objInfo));
 }

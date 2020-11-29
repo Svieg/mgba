@@ -6,6 +6,7 @@
 #include <mgba/internal/arm/debugger/cli-debugger.h>
 
 #include <mgba/core/core.h>
+#include <mgba/core/timing.h>
 #include <mgba/internal/arm/debugger/debugger.h>
 #include <mgba/internal/arm/debugger/memory-debugger.h>
 #include <mgba/internal/arm/decoder.h>
@@ -22,17 +23,21 @@ static void _disassembleMode(struct CLIDebugger*, struct CLIDebugVector*, enum E
 static uint32_t _printLine(struct CLIDebugger* debugger, uint32_t address, enum ExecutionMode mode);
 
 static struct CLIDebuggerCommandSummary _armCommands[] = {
-	{ "b/a", _setBreakpointARM, "I", "Set a software breakpoint as ARM" },
-	{ "b/t", _setBreakpointThumb, "I", "Set a software breakpoint as Thumb" },
 	{ "break/a", _setBreakpointARM, "I", "Set a software breakpoint as ARM" },
 	{ "break/t", _setBreakpointThumb, "I", "Set a software breakpoint as Thumb" },
-	{ "dis/a", _disassembleArm, "Ii", "Disassemble instructions as ARM" },
-	{ "dis/t", _disassembleThumb, "Ii", "Disassemble instructions as Thumb" },
-	{ "disasm/a", _disassembleArm, "Ii", "Disassemble instructions as ARM" },
-	{ "disasm/t", _disassembleThumb, "Ii", "Disassemble instructions as Thumb" },
 	{ "disassemble/a", _disassembleArm, "Ii", "Disassemble instructions as ARM" },
 	{ "disassemble/t", _disassembleThumb, "Ii", "Disassemble instructions as Thumb" },
 	{ 0, 0, 0, 0 }
+};
+
+static struct CLIDebuggerCommandAlias _armCommandAliases[] = {
+	{ "b/a", "break/a" },
+	{ "b/t", "break/t" },
+	{ "dis/a", "disassemble/a" },
+	{ "dis/t", "disassemble/t" },
+	{ "disasm/a",  "disassemble/a" },
+	{ "disasm/t",  "disassemble/t" },
+	{ 0, 0 }
 };
 
 static inline void _printPSR(struct CLIDebuggerBackend* be, union PSR psr) {
@@ -82,7 +87,7 @@ static void _disassembleMode(struct CLIDebugger* debugger, struct CLIDebugVector
 		size = 1;
 	} else {
 		size = dv->intValue;
-		dv = dv->next; // TODO: Check for excess args
+		// TODO: Check for excess args
 	}
 
 	int i;
@@ -93,28 +98,29 @@ static void _disassembleMode(struct CLIDebugger* debugger, struct CLIDebugVector
 
 static inline uint32_t _printLine(struct CLIDebugger* debugger, uint32_t address, enum ExecutionMode mode) {
 	struct CLIDebuggerBackend* be = debugger->backend;
+	struct mCore* core = debugger->d.core;
 	char disassembly[64];
 	struct ARMInstructionInfo info;
 	be->printf(be, "%08X:  ", address);
 	if (mode == MODE_ARM) {
-		uint32_t instruction = debugger->d.core->busRead32(debugger->d.core, address);
+		uint32_t instruction = core->busRead32(core, address);
 		ARMDecodeARM(instruction, &info);
-		ARMDisassemble(&info, address + WORD_SIZE_ARM * 2, disassembly, sizeof(disassembly));
+		ARMDisassemble(&info, core->cpu, core->symbolTable, address + WORD_SIZE_ARM * 2, disassembly, sizeof(disassembly));
 		be->printf(be, "%08X\t%s\n", instruction, disassembly);
 		return WORD_SIZE_ARM;
 	} else {
 		struct ARMInstructionInfo info2;
 		struct ARMInstructionInfo combined;
-		uint16_t instruction = debugger->d.core->busRead16(debugger->d.core, address);
-		uint16_t instruction2 = debugger->d.core->busRead16(debugger->d.core, address + WORD_SIZE_THUMB);
+		uint16_t instruction = core->busRead16(core, address);
+		uint16_t instruction2 = core->busRead16(core, address + WORD_SIZE_THUMB);
 		ARMDecodeThumb(instruction, &info);
 		ARMDecodeThumb(instruction2, &info2);
 		if (ARMDecodeThumbCombine(&info, &info2, &combined)) {
-			ARMDisassemble(&combined, address + WORD_SIZE_THUMB * 2, disassembly, sizeof(disassembly));
+			ARMDisassemble(&combined, core->cpu, core->symbolTable, address + WORD_SIZE_THUMB * 2, disassembly, sizeof(disassembly));
 			be->printf(be, "%04X %04X\t%s\n", instruction, instruction2, disassembly);
 			return WORD_SIZE_THUMB * 2;
 		} else {
-			ARMDisassemble(&info, address + WORD_SIZE_THUMB * 2, disassembly, sizeof(disassembly));
+			ARMDisassemble(&info, core->cpu, core->symbolTable, address + WORD_SIZE_THUMB * 2, disassembly, sizeof(disassembly));
 			be->printf(be, "%04X     \t%s\n", instruction, disassembly);
 			return WORD_SIZE_THUMB;
 		}
@@ -134,6 +140,7 @@ static void _printStatus(struct CLIDebuggerSystem* debugger) {
 	}
 	be->printf(be, "cpsr: ");
 	_printPSR(be, cpu->cpsr);
+	be->printf(be, "Cycle: %" PRIu64 "\n", mTimingGlobalTime(debugger->p->d.core->timing));
 	int instructionLength;
 	enum ExecutionMode mode = cpu->cpsr.t;
 	if (mode == MODE_ARM) {
@@ -175,4 +182,5 @@ void ARMCLIDebuggerCreate(struct CLIDebuggerSystem* debugger) {
 	debugger->disassemble = _disassemble;
 	debugger->platformName = "ARM";
 	debugger->platformCommands = _armCommands;
+	debugger->platformCommandAliases = _armCommandAliases;
 }

@@ -15,6 +15,10 @@
 #cmakedefine BUILD_GLES2
 #endif
 
+#ifndef BUILD_GLES3
+#cmakedefine BUILD_GLES3
+#endif
+
 // Miscellaneous flags
 
 #ifndef COLOR_16_BIT
@@ -93,10 +97,6 @@
 
 #ifndef USE_LZMA
 #cmakedefine USE_LZMA
-#endif
-
-#ifndef USE_MAGICK
-#cmakedefine USE_MAGICK
 #endif
 
 #ifndef USE_MINIZIP

@@ -6,6 +6,7 @@
 #pragma once
 
 #include <QByteArray>
+#include <QFile>
 #include <QList>
 #include <QMutex>
 #include <QObject>
@@ -52,8 +53,8 @@ public:
 
 	class Interrupter {
 	public:
-		Interrupter(CoreController*, bool fromThread = false);
-		Interrupter(std::shared_ptr<CoreController>, bool fromThread = false);
+		Interrupter(CoreController*);
+		Interrupter(std::shared_ptr<CoreController>);
 		Interrupter(const Interrupter&);
 		~Interrupter();
 
@@ -127,6 +128,7 @@ public slots:
 
 	void loadSave(const QString&, bool temporary);
 	void loadPatch(const QString&);
+	void scanCard(const QString&);
 	void replaceGame(const QString&);
 	void yankPak();
 
@@ -211,6 +213,7 @@ private:
 	QList<std::function<void()>> m_resetActions;
 	QList<std::function<void()>> m_frameActions;
 	QMutex m_actionMutex{QMutex::Recursive};
+	int m_moreFrames = -1;
 	QMutex m_bufferMutex;
 
 	int m_activeKeys = 0;
@@ -230,7 +233,7 @@ private:
 
 	bool m_autosave;
 	bool m_autoload;
-	int m_autosaveCounter;
+	int m_autosaveCounter = 0;
 
 	int m_fastForward = false;
 	int m_fastForwardForced = false;
@@ -256,6 +259,7 @@ private:
 
 #ifdef M_CORE_GBA
 	GBASIOBattlechipGate m_battlechip;
+	QByteArray m_eReaderData;
 #endif
 };
 

@@ -34,8 +34,8 @@ using namespace QGBA;
 
 CoreController::CoreController(mCore* core, QObject* parent)
 	: QObject(parent)
-	, m_saveStateFlags(SAVESTATE_SCREENSHOT | SAVESTATE_SAVEDATA | SAVESTATE_CHEATS | SAVESTATE_RTC)
 	, m_loadStateFlags(SAVESTATE_SCREENSHOT | SAVESTATE_RTC)
+	, m_saveStateFlags(SAVESTATE_SCREENSHOT | SAVESTATE_SAVEDATA | SAVESTATE_CHEATS | SAVESTATE_RTC)
 {
 	m_threadContext.core = core;
 	m_threadContext.userData = this;
@@ -221,12 +221,13 @@ QImage CoreController::getPixels() {
 		const void* pixels;
 		m_threadContext.core->getPixels(m_threadContext.core, &pixels, &stride);
 		stride *= BYTES_PER_PIXEL;
-		buffer.resize(stride * size.height());
-		memcpy(buffer.data(), pixels, buffer.size());
+		buffer = QByteArray::fromRawData(static_cast<const char*>(pixels), stride * size.height());
 	}
 
-	return QImage(reinterpret_cast<const uchar*>(buffer.constData()),
-	              size.width(), size.height(), stride, QImage::Format_RGBX8888);
+	QImage image(reinterpret_cast<const uchar*>(buffer.constData()),
+	             size.width(), size.height(), stride, QImage::Format_RGBX8888);
+	image.bits(); // Cause QImage to detach
+	return image;
 }
 
 bool CoreController::isPaused() {
@@ -264,10 +265,28 @@ void CoreController::loadConfig(ConfigController* config) {
 	m_fastForwardMute = config->getOption("fastForwardMute", -1).toInt();
 	mCoreConfigCopyValue(&m_threadContext.core->config, config->config(), "volume");
 	mCoreConfigCopyValue(&m_threadContext.core->config, config->config(), "mute");
+
+	QSize sizeBefore = screenDimensions();
+	m_activeBuffer.resize(256 * 224 * sizeof(color_t));
+	m_threadContext.core->setVideoBuffer(m_threadContext.core, reinterpret_cast<color_t*>(m_activeBuffer.data()), sizeBefore.width());
+
 	mCoreLoadForeignConfig(m_threadContext.core, config->config());
+
+	QSize sizeAfter = screenDimensions();
+	m_activeBuffer.resize(sizeAfter.width() * sizeAfter.height() * sizeof(color_t));
+	m_threadContext.core->setVideoBuffer(m_threadContext.core, reinterpret_cast<color_t*>(m_activeBuffer.data()), sizeAfter.width());
+
 	if (hasStarted()) {
 		updateFastForward();
 		mCoreThreadRewindParamsChanged(&m_threadContext);
+	}
+	if (sizeBefore != sizeAfter) {
+#ifdef M_CORE_GB
+		mCoreConfigSetIntValue(&m_threadContext.core->config, "sgb.borders", 0);
+		m_threadContext.core->reloadConfigOption(m_threadContext.core, "sgb.borders", nullptr);
+		mCoreConfigCopyValue(&m_threadContext.core->config, config->config(), "sgb.borders");
+		m_threadContext.core->reloadConfigOption(m_threadContext.core, "sgb.borders", nullptr);
+#endif
 	}
 }
 
@@ -357,14 +376,12 @@ void CoreController::setLogger(LogController* logger) {
 }
 
 void CoreController::start() {
-	if (!m_hwaccel) {
-		QSize size(256, 224);
-		m_activeBuffer.resize(size.width() * size.height() * sizeof(color_t));
-		m_activeBuffer.fill(0xFF);
-		m_completeBuffer = m_activeBuffer;
+	QSize size(screenDimensions());
+	m_activeBuffer.resize(size.width() * size.height() * sizeof(color_t));
+	m_activeBuffer.fill(0xFF);
+	m_completeBuffer = m_activeBuffer;
 
-		m_threadContext.core->setVideoBuffer(m_threadContext.core, reinterpret_cast<color_t*>(m_activeBuffer.data()), size.width());
-	}
+	m_threadContext.core->setVideoBuffer(m_threadContext.core, reinterpret_cast<color_t*>(m_activeBuffer.data()), size.width());
 
 	if (!m_patched) {
 		mCoreAutoloadPatch(m_threadContext.core);
@@ -385,33 +402,29 @@ void CoreController::stop() {
 }
 
 void CoreController::reset() {
-	bool wasPaused = isPaused();
-	setPaused(false);
-	Interrupter interrupter(this);
 	mCoreThreadReset(&m_threadContext);
-	if (wasPaused) {
-		setPaused(true);
-	}
 }
 
 void CoreController::setPaused(bool paused) {
-	if (paused == isPaused()) {
-		return;
-	}
+	QMutexLocker locker(&m_actionMutex);
 	if (paused) {
-		addFrameAction([this]() {
-			mCoreThreadPauseFromThread(&m_threadContext);
-		});
+		if (m_moreFrames < 0) {
+			m_moreFrames = 1;
+		}
 	} else {
-		mCoreThreadUnpause(&m_threadContext);
+		m_moreFrames = -1;
+		if (isPaused()) {
+			mCoreThreadUnpause(&m_threadContext);
+		}
 	}
 }
 
 void CoreController::frameAdvance() {
-	addFrameAction([this]() {
-		mCoreThreadPauseFromThread(&m_threadContext);
-	});
-	setPaused(false);
+	QMutexLocker locker(&m_actionMutex);
+	m_moreFrames = 1;
+	if (isPaused()) {
+		mCoreThreadUnpause(&m_threadContext);
+	}
 }
 
 void CoreController::addFrameAction(std::function<void ()> action) {
@@ -628,13 +641,20 @@ void CoreController::replaceGame(const QString& path) {
 }
 
 void CoreController::yankPak() {
-#ifdef M_CORE_GBA
-	if (platform() != PLATFORM_GBA) {
-		return;
-	}
 	Interrupter interrupter(this);
-	GBAYankROM(static_cast<GBA*>(m_threadContext.core->board));
+
+	switch (platform()) {
+#ifdef M_CORE_GBA
+	case PLATFORM_GBA:
+		GBAYankROM(static_cast<GBA*>(m_threadContext.core->board));
+		break;
 #endif
+#ifdef M_CORE_GB
+	case PLATFORM_GB:
+		GBYankROM(static_cast<GB*>(m_threadContext.core->board));
+		break;
+#endif
+	}
 }
 
 void CoreController::addKey(int key) {
@@ -675,6 +695,32 @@ void CoreController::setFakeEpoch(const QDateTime& time) {
 	m_threadContext.core->rtc.override = RTC_FAKE_EPOCH;
 	m_threadContext.core->rtc.value = time.toMSecsSinceEpoch();
 }
+
+void CoreController::scanCard(const QString& path) {
+#ifdef M_CORE_GBA
+	QImage image(path);
+	if (image.isNull()) {
+		QFile file(path);
+		file.open(QIODevice::ReadOnly);
+		m_eReaderData = file.read(2912);
+	} else if (image.size() == QSize(989, 44)) {
+		const uchar* bits = image.constBits();
+		size_t size;
+#if (QT_VERSION >= QT_VERSION_CHECK(5, 10, 0))
+		size = image.sizeInBytes();
+#else
+		size = image.byteCount();
+#endif
+		m_eReaderData.setRawData(reinterpret_cast<const char*>(bits), size);
+	}
+
+	mCoreThreadRunFunction(&m_threadContext, [](mCoreThread* thread) {
+		CoreController* controller = static_cast<CoreController*>(thread->userData);
+		GBAEReaderQueueCard(static_cast<GBA*>(thread->core->board), controller->m_eReaderData.constData(), controller->m_eReaderData.size());
+	});
+#endif
+}
+
 
 void CoreController::importSharkport(const QString& path) {
 #ifdef M_CORE_GBA
@@ -841,9 +887,8 @@ void CoreController::endVideoLog(bool closeVf) {
 	}
 
 	Interrupter interrupter(this);
-	mVideoLogContextDestroy(m_threadContext.core, m_vl);
-	if (m_vlVf && closeVf) {
-		m_vlVf->close(m_vlVf);
+	mVideoLogContextDestroy(m_threadContext.core, m_vl, closeVf);
+	if (closeVf) {
 		m_vlVf = nullptr;
 	}
 	m_vl = nullptr;
@@ -852,10 +897,25 @@ void CoreController::endVideoLog(bool closeVf) {
 void CoreController::setFramebufferHandle(int fb) {
 	Interrupter interrupter(this);
 	if (fb < 0) {
+		if (!m_hwaccel) {
+			return;
+		}
+		mCoreConfigSetIntValue(&m_threadContext.core->config, "hwaccelVideo", 0);
+		m_threadContext.core->setVideoGLTex(m_threadContext.core, -1);
 		m_hwaccel = false;
 	} else {
+		mCoreConfigSetIntValue(&m_threadContext.core->config, "hwaccelVideo", 1);
 		m_threadContext.core->setVideoGLTex(m_threadContext.core, fb);
+		if (m_hwaccel) {
+			return;
+		}
 		m_hwaccel = true;
+	}
+	if (hasStarted()) {
+		m_threadContext.core->reloadConfigOption(m_threadContext.core, "hwaccelVideo", NULL);
+		if (!m_hwaccel) {
+			m_threadContext.core->setVideoBuffer(m_threadContext.core, reinterpret_cast<color_t*>(m_activeBuffer.data()), screenDimensions().width());
+		}
 	}
 }
 
@@ -886,14 +946,22 @@ void CoreController::finishFrame() {
 		m_threadContext.core->desiredVideoDimensions(m_threadContext.core, &width, &height);
 
 		QMutexLocker locker(&m_bufferMutex);
-		memcpy(m_completeBuffer.data(), m_activeBuffer.constData(), 256 * height * BYTES_PER_PIXEL);
+		memcpy(m_completeBuffer.data(), m_activeBuffer.constData(), width * height * BYTES_PER_PIXEL);
 	}
 
-	QMutexLocker locker(&m_actionMutex);
-	QList<std::function<void ()>> frameActions(m_frameActions);
-	m_frameActions.clear();
-	for (auto& action : frameActions) {
-		action();
+	{
+		QMutexLocker locker(&m_actionMutex);
+		QList<std::function<void ()>> frameActions(m_frameActions);
+		m_frameActions.clear();
+		for (auto& action : frameActions) {
+			action();
+		}
+		if (m_moreFrames > 0) {
+			--m_moreFrames;
+			if (!m_moreFrames) {
+				mCoreThreadPauseFromThread(&m_threadContext);
+			}
+		}
 	}
 	updateKeys();
 
@@ -944,26 +1012,26 @@ void CoreController::updateFastForward() {
 	m_threadContext.core->reloadConfigOption(m_threadContext.core, NULL, NULL);
 }
 
-CoreController::Interrupter::Interrupter(CoreController* parent, bool fromThread)
+CoreController::Interrupter::Interrupter(CoreController* parent)
 	: m_parent(parent)
 {
 	if (!m_parent->thread()->impl) {
 		return;
 	}
-	if (!fromThread) {
+	if (mCoreThreadGet() != m_parent->thread()) {
 		mCoreThreadInterrupt(m_parent->thread());
 	} else {
 		mCoreThreadInterruptFromThread(m_parent->thread());
 	}
 }
 
-CoreController::Interrupter::Interrupter(std::shared_ptr<CoreController> parent, bool fromThread)
+CoreController::Interrupter::Interrupter(std::shared_ptr<CoreController> parent)
 	: m_parent(parent.get())
 {
 	if (!m_parent->thread()->impl) {
 		return;
 	}
-	if (!fromThread) {
+	if (mCoreThreadGet() != m_parent->thread()) {
 		mCoreThreadInterrupt(m_parent->thread());
 	} else {
 		mCoreThreadInterruptFromThread(m_parent->thread());

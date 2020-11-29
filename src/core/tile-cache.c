@@ -46,11 +46,14 @@ static void _redoCacheSize(struct mTileCache* cache) {
 	unsigned tiles = mTileCacheSystemInfoGetMaxTiles(cache->sysConfig);
 	cache->cache = anonymousMemoryMap(8 * 8 * sizeof(color_t) * tiles * size);
 	cache->status = anonymousMemoryMap(tiles * size * sizeof(*cache->status));
-	cache->globalPaletteVersion = malloc(size * sizeof(*cache->globalPaletteVersion));
-	cache->palette = malloc(size * bpp * sizeof(*cache->palette));
+	cache->globalPaletteVersion = calloc(size, sizeof(*cache->globalPaletteVersion));
+	cache->palette = calloc(size * bpp, sizeof(*cache->palette));
 }
 
 void mTileCacheConfigure(struct mTileCache* cache, mTileCacheConfiguration config) {
+	if (cache->config == config) {
+		return;
+	}
 	_freeCache(cache);
 	cache->config = config;
 	_redoCacheSize(cache);
@@ -278,5 +281,9 @@ const color_t* mTileCacheGetPalette(struct mTileCache* cache, unsigned paletteId
 }
 
 const uint16_t* mTileCacheGetVRAM(struct mTileCache* cache, unsigned tileId) {
+	unsigned tiles = mTileCacheSystemInfoGetMaxTiles(cache->sysConfig);
+	if (tileId >= tiles) {
+		return NULL;
+	}
 	return &cache->vram[tileId << (cache->bpp + 2)];
 }

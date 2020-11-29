@@ -72,13 +72,12 @@ static enum GUICursorState _pollCursor(unsigned* x, unsigned* y) {
 }
 
 static int _batteryState(void) {
-	int charge = scePowerGetBatteryLifePercent();
+	int charge = scePowerGetBatteryLifePercent() | BATTERY_PERCENTAGE_VALID;
 	int adapter = scePowerIsPowerOnline();
 	int state = 0;
 	if (adapter) {
 		state |= BATTERY_CHARGING;
 	}
-	charge /= 25;
 	return state | charge;
 }
 
@@ -152,7 +151,7 @@ int main() {
 		.teardown = mPSP2Teardown,
 		.gameLoaded = mPSP2LoadROM,
 		.gameUnloaded = mPSP2UnloadROM,
-		.prepareForFrame = NULL,
+		.prepareForFrame = mPSP2Swap,
 		.drawFrame = mPSP2Draw,
 		.drawScreenshot = mPSP2DrawScreenshot,
 		.paused = mPSP2Paused,
@@ -165,6 +164,7 @@ int main() {
 
 	sceTouchSetSamplingState(SCE_TOUCH_PORT_FRONT, SCE_TOUCH_SAMPLING_STATE_START);
 	sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG_WIDE);
+	sceCtrlSetSamplingModeExt(SCE_CTRL_MODE_ANALOG_WIDE);
 	sceSysmoduleLoadModule(SCE_SYSMODULE_PHOTO_EXPORT);
 	sceSysmoduleLoadModule(SCE_SYSMODULE_APPUTIL);
 

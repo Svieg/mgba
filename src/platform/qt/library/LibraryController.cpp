@@ -1,4 +1,5 @@
 /* Copyright (c) 2014-2017 waddlesplash
+ * Copyright (c) 2014-2020 Jeffrey Pfau
  *
  * This Source Code Form is subject to the terms of the Mozilla Public
  * License, v. 2.0. If a copy of the MPL was not distributed with this
@@ -10,7 +11,7 @@
 #include "LibraryGrid.h"
 #include "LibraryTree.h"
 
-namespace QGBA {
+using namespace QGBA;
 
 LibraryEntry::LibraryEntry(mLibraryEntry* entry)
 	: entry(entry)
@@ -51,11 +52,13 @@ LibraryController::LibraryController(QWidget* parent, const QString& path, Confi
 	m_libraryGrid = std::make_unique<LibraryGrid>(this);
 	addWidget(m_libraryGrid->widget());
 
+	m_currentStyle = LibraryStyle::STYLE_TREE; // Make sure setViewStyle does something
 	setViewStyle(LibraryStyle::STYLE_LIST);
 	refresh();
 }
 
 LibraryController::~LibraryController() {
+	freeLibrary();
 	mLibraryListingDeinit(&m_listing);
 }
 
@@ -133,7 +136,7 @@ void LibraryController::refresh() {
 	QStringList allEntries;
 	QList<LibraryEntryRef> newEntries;
 
-	mLibraryListingClear(&m_listing);
+	freeLibrary();
 	mLibraryGetEntries(m_library.get(), &m_listing, 0, 0, nullptr);
 	for (size_t i = 0; i < mLibraryListingSize(&m_listing); i++) {
 		mLibraryEntry* entry = mLibraryListingGetPointer(&m_listing, i);
@@ -184,4 +187,9 @@ void LibraryController::loadDirectory(const QString& dir) {
 	mLibraryLoadDirectory(library.get(), dir.toUtf8().constData());
 }
 
+void LibraryController::freeLibrary() {
+	for (size_t i = 0; i < mLibraryListingSize(&m_listing); ++i) {
+		mLibraryEntryFree(mLibraryListingGetPointer(&m_listing, i));
+	}
+	mLibraryListingClear(&m_listing);
 }

@@ -10,6 +10,7 @@
 #include <mgba/internal/gba/serialize.h>
 #include <mgba-util/formatting.h>
 #include <mgba-util/hash.h>
+#include <mgba-util/memory.h>
 
 mLOG_DEFINE_CATEGORY(GBA_HW, "GBA Pak Hardware", "gba.hardware");
 
@@ -49,6 +50,8 @@ static const int RTC_BYTES[8] = {
 
 void GBAHardwareInit(struct GBACartridgeHardware* hw, uint16_t* base) {
 	hw->gpioBase = base;
+	hw->eReaderDots = NULL;
+	memset(hw->eReaderCards, 0, sizeof(hw->eReaderCards));
 	GBAHardwareClear(hw);
 
 	hw->gbpCallback.d.readKeys = _gbpRead;
@@ -71,6 +74,20 @@ void GBAHardwareClear(struct GBACartridgeHardware* hw) {
 	hw->pinState = 0;
 	hw->direction = 0;
 
+	if (hw->eReaderDots) {
+		mappedMemoryFree(hw->eReaderDots, EREADER_DOTCODE_SIZE);
+		hw->eReaderDots = NULL;
+	}
+	int i;
+	for (i = 0; i < EREADER_CARDS_MAX; ++i) {
+		if (!hw->eReaderCards[i].data) {
+			continue;
+		}
+		free(hw->eReaderCards[i].data);
+		hw->eReaderCards[i].data = NULL;
+		hw->eReaderCards[i].size = 0;
+	}
+
 	if (hw->p->sio.drivers.normal == &hw->gbpDriver.d) {
 		GBASIOSetDriver(&hw->p->sio, 0, SIO_NORMAL_32);
 	}
@@ -82,8 +99,12 @@ void GBAHardwareGPIOWrite(struct GBACartridgeHardware* hw, uint32_t address, uin
 	}
 	switch (address) {
 	case GPIO_REG_DATA:
-		hw->pinState &= ~hw->direction;
-		hw->pinState |= value & hw->direction;
+		if (!hw->p->vbaBugCompat) {
+			hw->pinState &= ~hw->direction;
+			hw->pinState |= value & hw->direction;
+		} else {
+			hw->pinState = value;
+		}
 		_readPins(hw);
 		break;
 	case GPIO_REG_DIRECTION:
@@ -221,6 +242,7 @@ void _rtcProcessByte(struct GBACartridgeHardware* hw) {
 
 			hw->rtc.bytesRemaining = RTC_BYTES[RTCCommandDataGetCommand(command)];
 			hw->rtc.commandActive = hw->rtc.bytesRemaining > 0;
+			mLOG(GBA_HW, DEBUG, "Got RTC command %x", RTCCommandDataGetCommand(command));
 			switch (RTCCommandDataGetCommand(command)) {
 			case RTC_RESET:
 				hw->rtc.control = 0;
@@ -278,6 +300,9 @@ unsigned _rtcOutput(struct GBACartridgeHardware* hw) {
 		break;
 	}
 	unsigned output = (outputByte >> hw->rtc.bitsRead) & 1;
+	if (hw->rtc.bitsRead == 0) {
+		mLOG(GBA_HW, DEBUG, "RTC output byte %02X", outputByte);
+	}
 	return output;
 }
 
@@ -481,15 +506,15 @@ uint8_t GBAHardwareTiltRead(struct GBACartridgeHardware* hw, uint32_t address) {
 
 // == Game Boy Player
 
-static const uint16_t _logoPalette[] = {
-	0xFFDF, 0x640C, 0xE40C, 0xE42D, 0x644E, 0xE44E, 0xE46E, 0x68AF,
-	0xE8B0, 0x68D0, 0x68F0, 0x6911, 0xE911, 0x6D32, 0xED32, 0xED73,
-	0x6D93, 0xED94, 0x6DB4, 0xF1D5, 0x71F5, 0xF1F6, 0x7216, 0x7257,
-	0xF657, 0x7678, 0xF678, 0xF699, 0xF6B9, 0x76D9, 0xF6DA, 0x7B1B,
-	0xFB1B, 0xFB3C, 0x7B5C, 0x7B7D, 0xFF7D, 0x7F9D, 0x7FBE, 0x7FFF,
-	0x642D, 0x648E, 0xE88F, 0xE8F1, 0x6D52, 0x6D73, 0xF1B4, 0xF216,
-	0x7237, 0x7698, 0x7AFA, 0xFAFA, 0xFB5C, 0xFFBE, 0x7FDE, 0xFFFF,
-	0xFFFF, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000, 0x0000
+static const uint8_t _logoPalette[] = {
+	0xDF, 0xFF, 0x0C, 0x64, 0x0C, 0xE4, 0x2D, 0xE4, 0x4E, 0x64, 0x4E, 0xE4, 0x6E, 0xE4, 0xAF, 0x68,
+	0xB0, 0xE8, 0xD0, 0x68, 0xF0, 0x68, 0x11, 0x69, 0x11, 0xE9, 0x32, 0x6D, 0x32, 0xED, 0x73, 0xED,
+	0x93, 0x6D, 0x94, 0xED, 0xB4, 0x6D, 0xD5, 0xF1, 0xF5, 0x71, 0xF6, 0xF1, 0x16, 0x72, 0x57, 0x72,
+	0x57, 0xF6, 0x78, 0x76, 0x78, 0xF6, 0x99, 0xF6, 0xB9, 0xF6, 0xD9, 0x76, 0xDA, 0xF6, 0x1B, 0x7B,
+	0x1B, 0xFB, 0x3C, 0xFB, 0x5C, 0x7B, 0x7D, 0x7B, 0x7D, 0xFF, 0x9D, 0x7F, 0xBE, 0x7F, 0xFF, 0x7F,
+	0x2D, 0x64, 0x8E, 0x64, 0x8F, 0xE8, 0xF1, 0xE8, 0x52, 0x6D, 0x73, 0x6D, 0xB4, 0xF1, 0x16, 0xF2,
+	0x37, 0x72, 0x98, 0x76, 0xFA, 0x7A, 0xFA, 0xFA, 0x5C, 0xFB, 0xBE, 0xFF, 0xDE, 0x7F, 0xFF, 0xFF,
+	0xFF, 0xFF, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
 };
 
 static const uint32_t _logoHash = 0xEEDA6963;
@@ -525,13 +550,14 @@ void GBAHardwarePlayerUpdate(struct GBA* gba) {
 		gba->memory.hw.gbpTxPosition = 0;
 		return;
 	}
-	if (gba->keyCallback || gba->sio.drivers.normal) {
+	if (gba->keyCallback) {
 		return;
 	}
 	if (GBAHardwarePlayerCheckScreen(&gba->video)) {
 		gba->memory.hw.devices |= HW_GB_PLAYER;
 		gba->memory.hw.gbpInputsPosted = 0;
 		gba->keyCallback = &gba->memory.hw.gbpCallback.d;
+		// TODO: Check if the SIO driver is actually used first
 		GBASIOSetDriver(&gba->sio, &gba->memory.hw.gbpDriver.d, SIO_NORMAL_32);
 	}
 }
@@ -601,14 +627,14 @@ void GBAHardwareSerialize(const struct GBACartridgeHardware* hw, struct GBASeria
 	STORE_16(hw->direction, 0, &state->hw.pinDirection);
 	state->hw.devices = hw->devices;
 
-	STORE_32(hw->rtc.bytesRemaining, 0, &state->hw.rtc.bytesRemaining);
-	STORE_32(hw->rtc.transferStep, 0, &state->hw.rtc.transferStep);
-	STORE_32(hw->rtc.bitsRead, 0, &state->hw.rtc.bitsRead);
-	STORE_32(hw->rtc.bits, 0, &state->hw.rtc.bits);
-	STORE_32(hw->rtc.commandActive, 0, &state->hw.rtc.commandActive);
-	STORE_32(hw->rtc.command, 0, &state->hw.rtc.command);
-	STORE_32(hw->rtc.control, 0, &state->hw.rtc.control);
-	memcpy(state->hw.rtc.time, hw->rtc.time, sizeof(state->hw.rtc.time));
+	STORE_32(hw->rtc.bytesRemaining, 0, &state->hw.rtcBytesRemaining);
+	STORE_32(hw->rtc.transferStep, 0, &state->hw.rtcTransferStep);
+	STORE_32(hw->rtc.bitsRead, 0, &state->hw.rtcBitsRead);
+	STORE_32(hw->rtc.bits, 0, &state->hw.rtcBits);
+	STORE_32(hw->rtc.commandActive, 0, &state->hw.rtcCommandActive);
+	STORE_32(hw->rtc.command, 0, &state->hw.rtcCommand);
+	STORE_32(hw->rtc.control, 0, &state->hw.rtcControl);
+	memcpy(state->hw.time, hw->rtc.time, sizeof(state->hw.time));
 
 	STORE_16(hw->gyroSample, 0, &state->hw.gyroSample);
 	flags1 = GBASerializedHWFlags1SetGyroEdge(flags1, hw->gyroEdge);
@@ -633,14 +659,14 @@ void GBAHardwareDeserialize(struct GBACartridgeHardware* hw, const struct GBASer
 	LOAD_16(hw->direction, 0, &state->hw.pinDirection);
 	hw->devices = state->hw.devices;
 
-	LOAD_32(hw->rtc.bytesRemaining, 0, &state->hw.rtc.bytesRemaining);
-	LOAD_32(hw->rtc.transferStep, 0, &state->hw.rtc.transferStep);
-	LOAD_32(hw->rtc.bitsRead, 0, &state->hw.rtc.bitsRead);
-	LOAD_32(hw->rtc.bits, 0, &state->hw.rtc.bits);
-	LOAD_32(hw->rtc.commandActive, 0, &state->hw.rtc.commandActive);
-	LOAD_32(hw->rtc.command, 0, &state->hw.rtc.command);
-	LOAD_32(hw->rtc.control, 0, &state->hw.rtc.control);
-	memcpy(hw->rtc.time, state->hw.rtc.time, sizeof(hw->rtc.time));
+	LOAD_32(hw->rtc.bytesRemaining, 0, &state->hw.rtcBytesRemaining);
+	LOAD_32(hw->rtc.transferStep, 0, &state->hw.rtcTransferStep);
+	LOAD_32(hw->rtc.bitsRead, 0, &state->hw.rtcBitsRead);
+	LOAD_32(hw->rtc.bits, 0, &state->hw.rtcBits);
+	LOAD_32(hw->rtc.commandActive, 0, &state->hw.rtcCommandActive);
+	LOAD_32(hw->rtc.command, 0, &state->hw.rtcCommand);
+	LOAD_32(hw->rtc.control, 0, &state->hw.rtcControl);
+	memcpy(hw->rtc.time, state->hw.time, sizeof(hw->rtc.time));
 
 	LOAD_16(hw->gyroSample, 0, &state->hw.gyroSample);
 	hw->gyroEdge = GBASerializedHWFlags1GetGyroEdge(flags1);

@@ -33,11 +33,14 @@
 #include <mgba-util/vfs.h>
 
 static const struct mCoreChannelInfo _GBAVideoLayers[] = {
-	{ 0, "bg0", "Background 0", NULL },
-	{ 1, "bg1", "Background 1", NULL },
-	{ 2, "bg2", "Background 2", NULL },
-	{ 3, "bg3", "Background 3", NULL },
-	{ 4, "obj", "Objects", NULL },
+	{ GBA_LAYER_BG0, "bg0", "Background 0", NULL },
+	{ GBA_LAYER_BG1, "bg1", "Background 1", NULL },
+	{ GBA_LAYER_BG2, "bg2", "Background 2", NULL },
+	{ GBA_LAYER_BG3, "bg3", "Background 3", NULL },
+	{ GBA_LAYER_OBJ, "obj", "Objects", NULL },
+	{ GBA_LAYER_WIN0, "win0", "Window 0", NULL },
+	{ GBA_LAYER_WIN1, "win1", "Window 1", NULL },
+	{ GBA_LAYER_OBJWIN, "objwin", "Object Window", NULL },
 };
 
 static const struct mCoreChannelInfo _GBAAudioChannels[] = {
@@ -58,9 +61,9 @@ static const struct mCoreMemoryBlock _GBAMemoryBlocks[] = {
 	{ REGION_PALETTE_RAM, "palette", "Palette", "Palette RAM (1kiB)", BASE_PALETTE_RAM, BASE_PALETTE_RAM + SIZE_PALETTE_RAM, SIZE_PALETTE_RAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_VRAM, "vram", "VRAM", "Video RAM (96kiB)", BASE_VRAM, BASE_VRAM + SIZE_VRAM, SIZE_VRAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_OAM, "oam", "OAM", "OBJ Attribute Memory (1kiB)", BASE_OAM, BASE_OAM + SIZE_OAM, SIZE_OAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
-	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
+	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
 };
 
 static const struct mCoreMemoryBlock _GBAMemoryBlocksSRAM[] = {
@@ -72,9 +75,9 @@ static const struct mCoreMemoryBlock _GBAMemoryBlocksSRAM[] = {
 	{ REGION_PALETTE_RAM, "palette", "Palette", "Palette RAM (1kiB)", BASE_PALETTE_RAM, BASE_PALETTE_RAM + SIZE_PALETTE_RAM, SIZE_PALETTE_RAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_VRAM, "vram", "VRAM", "Video RAM (96kiB)", BASE_VRAM, BASE_VRAM + SIZE_VRAM, SIZE_VRAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_OAM, "oam", "OAM", "OBJ Attribute Memory (1kiB)", BASE_OAM, BASE_OAM + SIZE_OAM, SIZE_OAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
-	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
+	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
 	{ REGION_CART_SRAM, "sram", "SRAM", "Static RAM (64kiB)", BASE_CART_SRAM, BASE_CART_SRAM + SIZE_CART_SRAM, SIZE_CART_SRAM, true },
 };
 
@@ -87,9 +90,9 @@ static const struct mCoreMemoryBlock _GBAMemoryBlocksFlash512[] = {
 	{ REGION_PALETTE_RAM, "palette", "Palette", "Palette RAM (1kiB)", BASE_PALETTE_RAM, BASE_PALETTE_RAM + SIZE_PALETTE_RAM, SIZE_PALETTE_RAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_VRAM, "vram", "VRAM", "Video RAM (96kiB)", BASE_VRAM, BASE_VRAM + SIZE_VRAM, SIZE_VRAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_OAM, "oam", "OAM", "OBJ Attribute Memory (1kiB)", BASE_OAM, BASE_OAM + SIZE_OAM, SIZE_OAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
-	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
+	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
 	{ REGION_CART_SRAM, "sram", "Flash", "Flash Memory (64kiB)", BASE_CART_SRAM, BASE_CART_SRAM + SIZE_CART_FLASH512, SIZE_CART_FLASH512, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 };
 
@@ -102,9 +105,9 @@ static const struct mCoreMemoryBlock _GBAMemoryBlocksFlash1M[] = {
 	{ REGION_PALETTE_RAM, "palette", "Palette", "Palette RAM (1kiB)", BASE_PALETTE_RAM, BASE_PALETTE_RAM + SIZE_PALETTE_RAM, SIZE_PALETTE_RAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_VRAM, "vram", "VRAM", "Video RAM (96kiB)", BASE_VRAM, BASE_VRAM + SIZE_VRAM, SIZE_VRAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_OAM, "oam", "OAM", "OBJ Attribute Memory (1kiB)", BASE_OAM, BASE_OAM + SIZE_OAM, SIZE_OAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
-	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
+	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
 	{ REGION_CART_SRAM, "sram", "Flash", "Flash Memory (64kiB)", BASE_CART_SRAM, BASE_CART_SRAM + SIZE_CART_FLASH512, SIZE_CART_FLASH1M, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED, 1 },
 };
 
@@ -117,9 +120,9 @@ static const struct mCoreMemoryBlock _GBAMemoryBlocksEEPROM[] = {
 	{ REGION_PALETTE_RAM, "palette", "Palette", "Palette RAM (1kiB)", BASE_PALETTE_RAM, BASE_PALETTE_RAM + SIZE_PALETTE_RAM, SIZE_PALETTE_RAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_VRAM, "vram", "VRAM", "Video RAM (96kiB)", BASE_VRAM, BASE_VRAM + SIZE_VRAM, SIZE_VRAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
 	{ REGION_OAM, "oam", "OAM", "OBJ Attribute Memory (1kiB)", BASE_OAM, BASE_OAM + SIZE_OAM, SIZE_OAM, mCORE_MEMORY_RW | mCORE_MEMORY_MAPPED },
-	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
-	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_MAPPED },
+	{ REGION_CART0, "cart0", "ROM", "Game Pak (32MiB)", BASE_CART0, BASE_CART0 + SIZE_CART0, SIZE_CART0, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART1, "cart1", "ROM WS1", "Game Pak (Waitstate 1)", BASE_CART1, BASE_CART1 + SIZE_CART1, SIZE_CART1, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
+	{ REGION_CART2, "cart2", "ROM WS2", "Game Pak (Waitstate 2)", BASE_CART2, BASE_CART2 + SIZE_CART2, SIZE_CART2, mCORE_MEMORY_READ | mCORE_MEMORY_WORM | mCORE_MEMORY_MAPPED },
 	{ REGION_CART_SRAM_MIRROR, "eeprom", "EEPROM", "EEPROM (8kiB)", 0, SIZE_CART_EEPROM, SIZE_CART_EEPROM, mCORE_MEMORY_RW },
 };
 
@@ -129,6 +132,7 @@ struct mVideoLogContext;
 
 struct GBACore {
 	struct mCore d;
+	struct GBAVideoRenderer dummyRenderer;
 	struct GBAVideoSoftwareRenderer renderer;
 #if defined(BUILD_GLES2) || defined(BUILD_GLES3)
 	struct GBAVideoGLRenderer glRenderer;
@@ -182,6 +186,9 @@ static bool _GBACoreInit(struct mCore* core) {
 	mRTCGenericSourceInit(&core->rtc, core);
 	gba->rtcSource = &core->rtc.d;
 
+	GBAVideoDummyRendererCreate(&gbacore->dummyRenderer);
+	GBAVideoAssociateRenderer(&gba->video, &gbacore->dummyRenderer);
+
 	GBAVideoSoftwareRendererCreate(&gbacore->renderer);
 	gbacore->renderer.outputBuffer = NULL;
 
@@ -215,6 +222,11 @@ static void _GBACoreDeinit(struct mCore* core) {
 	mappedMemoryFree(core->board, sizeof(struct GBA));
 #if !defined(MINIMAL_CORE) || MINIMAL_CORE < 2
 	mDirectorySetDeinit(&core->dirs);
+#endif
+#ifdef USE_DEBUGGERS
+	if (core->symbolTable) {
+		mDebuggerSymbolTableDestroy(core->symbolTable);
+	}
 #endif
 
 	struct GBACore* gbacore = (struct GBACore*) core;
@@ -287,6 +299,7 @@ static void _GBACoreLoadConfig(struct mCore* core, const struct mCoreConfig* con
 
 	mCoreConfigCopyValue(&core->config, config, "allowOpposingDirections");
 	mCoreConfigCopyValue(&core->config, config, "gba.bios");
+	mCoreConfigCopyValue(&core->config, config, "gba.forceGbp");
 	mCoreConfigCopyValue(&core->config, config, "gba.audioHle");
 
 #ifndef DISABLE_THREADING
@@ -347,13 +360,53 @@ static void _GBACoreReloadConfigOption(struct mCore* core, const char* option, c
 		}
 		return;
 	}
+
+	struct GBACore* gbacore = (struct GBACore*) core;
+#if defined(BUILD_GLES2) || defined(BUILD_GLES3)
+	if (strcmp("videoScale", option) == 0) {
+		if (config != &core->config) {
+			mCoreConfigCopyValue(&core->config, config, "videoScale");
+		}
+		if (gbacore->glRenderer.outputTex != (unsigned) -1 && mCoreConfigGetIntValue(&core->config, "hwaccelVideo", &fakeBool) && fakeBool) {
+			int scale;
+			mCoreConfigGetIntValue(config, "videoScale", &scale);
+			GBAVideoGLRendererSetScale(&gbacore->glRenderer, scale);
+		}
+		return;
+	}
+#endif
+	if (strcmp("hwaccelVideo", option) == 0) {
+		struct GBAVideoRenderer* renderer = NULL;
+		if (gbacore->renderer.outputBuffer) {
+			renderer = &gbacore->renderer.d;
+		}
+#if defined(BUILD_GLES2) || defined(BUILD_GLES3)
+		if (gbacore->glRenderer.outputTex != (unsigned) -1 && mCoreConfigGetIntValue(&core->config, "hwaccelVideo", &fakeBool) && fakeBool) {
+			mCoreConfigGetIntValue(&core->config, "videoScale", &gbacore->glRenderer.scale);
+			renderer = &gbacore->glRenderer.d;
+		} else {
+			gbacore->glRenderer.scale = 1;
+		}
+#endif
+#ifndef MINIMAL_CORE
+		if (renderer && core->videoLogger) {
+			gbacore->proxyRenderer.logger = core->videoLogger;
+			GBAVideoProxyRendererCreate(&gbacore->proxyRenderer, renderer);
+			renderer = &gbacore->proxyRenderer.d;
+		}
+#endif
+		if (renderer) {
+			GBAVideoAssociateRenderer(&gba->video, renderer);
+		}
+	}
 }
 
-static void _GBACoreDesiredVideoDimensions(struct mCore* core, unsigned* width, unsigned* height) {
+static void _GBACoreDesiredVideoDimensions(const struct mCore* core, unsigned* width, unsigned* height) {
 #if defined(BUILD_GLES2) || defined(BUILD_GLES3)
-	struct GBACore* gbacore = (struct GBACore*) core;
+	const struct GBACore* gbacore = (const struct GBACore*) core;
 	int scale = gbacore->glRenderer.scale;
 #else
+	UNUSED(core);
 	int scale = 1;
 #endif
 
@@ -434,9 +487,14 @@ static bool _GBACoreLoadROM(struct mCore* core, struct VFile* vf) {
 #ifdef USE_ELF
 	struct ELF* elf = ELFOpen(vf);
 	if (elf) {
-		GBALoadNull(core->board);
+		if (ELFEntry(elf) == BASE_CART0) {
+			GBALoadNull(core->board);
+		}
 		bool success = mCoreLoadELF(core, elf);
 		ELFClose(elf);
+		if (success) {
+			vf->close(vf);
+		}
 		return success;
 	}
 #endif
@@ -502,20 +560,22 @@ static void _GBACoreChecksum(const struct mCore* core, void* data, enum mCoreChe
 static void _GBACoreReset(struct mCore* core) {
 	struct GBACore* gbacore = (struct GBACore*) core;
 	struct GBA* gba = (struct GBA*) core->board;
+	int fakeBool;
 	if (gbacore->renderer.outputBuffer
 #if defined(BUILD_GLES2) || defined(BUILD_GLES3)
 	    || gbacore->glRenderer.outputTex != (unsigned) -1
 #endif
 	) {
-		struct GBAVideoRenderer* renderer;
+		struct GBAVideoRenderer* renderer = NULL;
 		if (gbacore->renderer.outputBuffer) {
 			renderer = &gbacore->renderer.d;
 		}
-		int fakeBool;
 #if defined(BUILD_GLES2) || defined(BUILD_GLES3)
 		if (gbacore->glRenderer.outputTex != (unsigned) -1 && mCoreConfigGetIntValue(&core->config, "hwaccelVideo", &fakeBool) && fakeBool) {
-			renderer = &gbacore->glRenderer.d;
 			mCoreConfigGetIntValue(&core->config, "videoScale", &gbacore->glRenderer.scale);
+			renderer = &gbacore->glRenderer.d;
+		} else {
+			gbacore->glRenderer.scale = 1;
 		}
 #endif
 #ifndef DISABLE_THREADING
@@ -526,13 +586,15 @@ static void _GBACoreReset(struct mCore* core) {
 		}
 #endif
 #ifndef MINIMAL_CORE
-		if (core->videoLogger) {
+		if (renderer && core->videoLogger) {
 			gbacore->proxyRenderer.logger = core->videoLogger;
 			GBAVideoProxyRendererCreate(&gbacore->proxyRenderer, renderer);
 			renderer = &gbacore->proxyRenderer.d;
 		}
 #endif
-		GBAVideoAssociateRenderer(&gba->video, renderer);
+		if (renderer) {
+			GBAVideoAssociateRenderer(&gba->video, renderer);
+		}
 	}
 
 #ifndef MINIMAL_CORE
@@ -545,7 +607,17 @@ static void _GBACoreReset(struct mCore* core) {
 	}
 #endif
 
+	bool forceGbp = false;
+	if (mCoreConfigGetIntValue(&core->config, "gba.forceGbp", &fakeBool)) {
+		forceGbp = fakeBool;
+	}
+	if (!forceGbp) {
+		gba->memory.hw.devices &= ~HW_GB_PLAYER_DETECTION;
+	}
 	GBAOverrideApplyDefaults(gba, gbacore->overrides);
+	if (forceGbp) {
+		gba->memory.hw.devices |= HW_GB_PLAYER_DETECTION;
+	}
 
 #if !defined(MINIMAL_CORE) || MINIMAL_CORE < 2
 	if (!gba->biosVf && core->opts.useBios) {
@@ -584,14 +656,14 @@ static void _GBACoreReset(struct mCore* core) {
 				bios = NULL;
 			}
 		}
-		if (bios) {
+		if (found && bios) {
 			GBALoadBIOS(gba, bios);
 		}
 	}
 #endif
 
 	ARMReset(core->cpu);
-	if (core->opts.skipBios && (gba->romVf || gba->memory.rom)) {
+	if ((core->opts.skipBios && (gba->romVf || gba->memory.rom)) || (gba->romVf && GBAIsMB(gba->romVf))) {
 		GBASkipBIOS(core->board);
 	}
 }
@@ -599,7 +671,8 @@ static void _GBACoreReset(struct mCore* core) {
 static void _GBACoreRunFrame(struct mCore* core) {
 	struct GBA* gba = core->board;
 	int32_t frameCounter = gba->video.frameCounter;
-	while (gba->video.frameCounter == frameCounter) {
+	uint32_t startCycle = mTimingCurrentTime(&gba->timing);
+	while (gba->video.frameCounter == frameCounter && mTimingCurrentTime(&gba->timing) - startCycle < VIDEO_TOTAL_LENGTH + VIDEO_HORIZONTAL_LENGTH) {
 		ARMRunLoop(core->cpu);
 	}
 }
@@ -819,12 +892,10 @@ void* _GBAGetMemoryBlock(struct mCore* core, size_t id, size_t* sizeOut) {
 static bool _GBACoreSupportsDebuggerType(struct mCore* core, enum mDebuggerType type) {
 	UNUSED(core);
 	switch (type) {
+	case DEBUGGER_CUSTOM:
 	case DEBUGGER_CLI:
-		return true;
-#ifdef USE_GDB_STUB
 	case DEBUGGER_GDB:
 		return true;
-#endif
 	default:
 		return false;
 	}
@@ -975,14 +1046,23 @@ static size_t _GBACoreListAudioChannels(const struct mCore* core, const struct m
 static void _GBACoreEnableVideoLayer(struct mCore* core, size_t id, bool enable) {
 	struct GBA* gba = core->board;
 	switch (id) {
-	case 0:
-	case 1:
-	case 2:
-	case 3:
+	case GBA_LAYER_BG0:
+	case GBA_LAYER_BG1:
+	case GBA_LAYER_BG2:
+	case GBA_LAYER_BG3:
 		gba->video.renderer->disableBG[id] = !enable;
 		break;
-	case 4:
+	case GBA_LAYER_OBJ:
 		gba->video.renderer->disableOBJ = !enable;
+		break;
+	case GBA_LAYER_WIN0:
+		gba->video.renderer->disableWIN[0] = !enable;
+		break;
+	case GBA_LAYER_WIN1:
+		gba->video.renderer->disableWIN[1] = !enable;
+		break;
+	case GBA_LAYER_OBJWIN:
+		gba->video.renderer->disableOBJWIN = !enable;
 		break;
 	default:
 		break;
@@ -1012,17 +1092,21 @@ static void _GBACoreEnableAudioChannel(struct mCore* core, size_t id, bool enabl
 static void _GBACoreAdjustVideoLayer(struct mCore* core, size_t id, int32_t x, int32_t y) {
 	struct GBACore* gbacore = (struct GBACore*) core;
 	switch (id) {
-	case 0:
-	case 1:
-	case 2:
-	case 3:
+	case GBA_LAYER_BG0:
+	case GBA_LAYER_BG1:
+	case GBA_LAYER_BG2:
+	case GBA_LAYER_BG3:
 		gbacore->renderer.bg[id].offsetX = x;
 		gbacore->renderer.bg[id].offsetY = y;
 		break;
-	case 4:
+	case GBA_LAYER_OBJ:
 		gbacore->renderer.objOffsetX = x;
 		gbacore->renderer.objOffsetY = y;
 		gbacore->renderer.oamDirty = 1;
+		break;
+	case GBA_LAYER_WIN0:
+		gbacore->renderer.winN[id - GBA_LAYER_WIN0].offsetX = x;
+		gbacore->renderer.winN[id - GBA_LAYER_WIN0].offsetY = y;
 		break;
 	default:
 		return;
@@ -1181,7 +1265,7 @@ static bool _GBAVLPInit(struct mCore* core) {
 static void _GBAVLPDeinit(struct mCore* core) {
 	struct GBACore* gbacore = (struct GBACore*) core;
 	if (gbacore->logContext) {
-		mVideoLogContextDestroy(core, gbacore->logContext);
+		mVideoLogContextDestroy(core, gbacore->logContext, true);
 	}
 	_GBACoreDeinit(core);
 }
@@ -1210,7 +1294,7 @@ static bool _GBAVLPLoadROM(struct mCore* core, struct VFile* vf) {
 	struct GBACore* gbacore = (struct GBACore*) core;
 	gbacore->logContext = mVideoLogContextCreate(NULL);
 	if (!mVideoLogContextLoad(gbacore->logContext, vf)) {
-		mVideoLogContextDestroy(core, gbacore->logContext);
+		mVideoLogContextDestroy(core, gbacore->logContext, false);
 		gbacore->logContext = NULL;
 		return false;
 	}

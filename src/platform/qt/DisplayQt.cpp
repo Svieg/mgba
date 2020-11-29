@@ -28,6 +28,7 @@ void DisplayQt::startDrawing(std::shared_ptr<CoreController> controller) {
 	m_oldBacking = std::move(QImage());
 	m_isDrawing = true;
 	m_context = controller;
+	emit drawingStarted();
 }
 
 void DisplayQt::stopDrawing() {
@@ -96,6 +97,7 @@ void DisplayQt::paintEvent(QPaintEvent*) {
 	if (isFiltered()) {
 		painter.setRenderHint(QPainter::SmoothPixmapTransform);
 	}
+	// TODO: Refactor this code out (since it's copied in like 3 places)
 	QSize s = size();
 	QSize ds = s;
 	if (isAspectRatioLocked()) {
@@ -106,8 +108,12 @@ void DisplayQt::paintEvent(QPaintEvent*) {
 		}
 	}
 	if (isIntegerScalingLocked()) {
-		ds.setWidth(ds.width() - ds.width() % m_width);
-		ds.setHeight(ds.height() - ds.height() % m_height);
+		if (ds.width() >= m_width) {
+			ds.setWidth(ds.width() - ds.width() % m_width);
+		}
+		if (ds.height() >= m_height) {
+			ds.setHeight(ds.height() - ds.height() % m_height);
+		}
 	}
 	QPoint origin = QPoint((s.width() - ds.width()) / 2, (s.height() - ds.height()) / 2);
 	QRect full(origin, ds);
@@ -118,5 +124,7 @@ void DisplayQt::paintEvent(QPaintEvent*) {
 	}
 	painter.drawImage(full, m_backing, QRect(0, 0, m_width, m_height));
 	painter.setOpacity(1);
-	messagePainter()->paint(&painter);
+	if (isShowOSD()) {
+		messagePainter()->paint(&painter);
+	}
 }

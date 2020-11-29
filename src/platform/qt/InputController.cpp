@@ -267,11 +267,25 @@ void InputController::setGamepad(uint32_t type, int index) {
 #endif
 }
 
-void InputController::setPreferredGamepad(uint32_t type, const QString& device) {
+void InputController::setPreferredGamepad(uint32_t type, int index) {
 	if (!m_config) {
 		return;
 	}
-	mInputSetPreferredDevice(m_config->input(), "gba", type, m_playerId, device.toUtf8().constData());
+#ifdef BUILD_SDL
+#if SDL_VERSION_ATLEAST(2, 0, 0)
+	char name[34] = {0};
+	SDL_JoystickGetGUIDString(SDL_JoystickGetGUID(SDL_JoystickListGetPointer(&s_sdlEvents.joysticks, index)->joystick), name, sizeof(name));
+#else
+	const char* name = SDL_JoystickName(SDL_JoystickIndex(SDL_JoystickListGetPointer(&s_sdlEvents.joysticks, index)->joystick));
+	if (!name) {
+		return;
+	}
+#endif
+	mInputSetPreferredDevice(m_config->input(), "gba", type, m_playerId, name);
+#else
+	UNUSED(type);
+	UNUSED(index);
+#endif
 }
 
 mRumble* InputController::rumble() {
@@ -370,6 +384,7 @@ int InputController::pollEvents() {
 		SDL_JoystickUpdate();
 		int numButtons = SDL_JoystickNumButtons(joystick);
 		int i;
+		QReadLocker l(&m_eventsLock);
 		for (i = 0; i < numButtons; ++i) {
 			GBAKey key = static_cast<GBAKey>(mInputMapKey(&m_inputMap, SDL_BINDING_BUTTON, i));
 			if (key == GBA_KEY_NONE) {
@@ -382,6 +397,7 @@ int InputController::pollEvents() {
 				activeButtons |= 1 << key;
 			}
 		}
+		l.unlock();
 		int numHats = SDL_JoystickNumHats(joystick);
 		for (i = 0; i < numHats; ++i) {
 			int hat = SDL_JoystickGetHat(joystick, i);
@@ -547,6 +563,7 @@ void InputController::bindHat(uint32_t type, int hat, GamepadHatEvent::Direction
 }
 
 void InputController::testGamepad(int type) {
+	QWriteLocker l(&m_eventsLock);
 	auto activeAxes = activeGamepadAxes(type);
 	auto oldAxes = m_activeAxes;
 	m_activeAxes = activeAxes;
@@ -632,7 +649,7 @@ void InputController::sendGamepadEvent(QEvent* event) {
 	} else {
 		focusWidget = QApplication::focusWidget();
 	}
-	QApplication::sendEvent(focusWidget, event);
+	QApplication::postEvent(focusWidget, event, Qt::HighEventPriority);
 }
 
 void InputController::postPendingEvent(GBAKey key) {
@@ -754,7 +771,6 @@ void InputController::prepareCamSettings(QCamera::Status status) {
 		return;
 	}
 #if (QT_VERSION >= QT_VERSION_CHECK(5, 5, 0))
-	QVideoFrame::PixelFormat format(QVideoFrame::Format_RGB32);
 	QCameraViewfinderSettings settings;
 	QSize size(1280, 720);
 	auto cameraRes = m_camera->supportedViewfinderResolutions(settings);
@@ -774,7 +790,6 @@ void InputController::prepareCamSettings(QCamera::Status status) {
 	for (const auto& goodFormat : goodFormats) {
 		if (cameraFormats.contains(goodFormat)) {
 			settings.setPixelFormat(goodFormat);
-			format = goodFormat;
 			goodFormatFound = true;
 			break;
 		}

@@ -1024,7 +1024,7 @@ const QList<IOViewer::RegisterDescription>& IOViewer::registerDescriptions() {
 }
 
 IOViewer::IOViewer(std::shared_ptr<CoreController> controller, QWidget* parent)
-	: QDialog(parent)
+	: QDialog(parent, Qt::WindowTitleHint | Qt::WindowSystemMenuHint | Qt::WindowCloseButtonHint)
 	, m_controller(controller)
 {
 	m_ui.setupUi(this);
@@ -1080,7 +1080,7 @@ void IOViewer::updateRegister() {
 	}
 
 	for (int i = 0; i < 16; ++i) {
-		m_b[i]->setChecked(value & (1 << i) ? Qt::Checked : Qt::Unchecked);
+		m_b[i]->setChecked(value & (1 << i));
 	}
 	m_value = value;
 	emit valueChanged();

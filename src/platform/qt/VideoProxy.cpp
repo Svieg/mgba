@@ -7,11 +7,14 @@
 
 #include "CoreController.h"
 
+#include <QThread>
+
 using namespace QGBA;
 
 VideoProxy::VideoProxy() {
 	mVideoLoggerRendererCreate(&m_logger.d, false);
 	m_logger.d.block = true;
+	m_logger.d.waitOnFlush = false;
 
 	m_logger.d.init = &cbind<&VideoProxy::init>;
 	m_logger.d.reset = &cbind<&VideoProxy::reset>;
@@ -32,6 +35,13 @@ VideoProxy::VideoProxy() {
 void VideoProxy::attach(CoreController* controller) {
 	CoreController::Interrupter interrupter(controller);
 	controller->thread()->core->videoLogger = &m_logger.d;
+}
+
+void VideoProxy::detach(CoreController* controller) {
+	CoreController::Interrupter interrupter(controller);
+	if (controller->thread()->core->videoLogger == &m_logger.d) {
+		controller->thread()->core->videoLogger = nullptr;
+	}
 }
 
 void VideoProxy::processData() {
@@ -56,11 +66,16 @@ void VideoProxy::deinit() {
 
 bool VideoProxy::writeData(const void* data, size_t length) {
 	while (!RingFIFOWrite(&m_dirtyQueue, data, length)) {
-		emit dataAvailable();
-		m_mutex.lock();
-		m_toThreadCond.wakeAll();
-		m_fromThreadCond.wait(&m_mutex);
-		m_mutex.unlock();
+		if (QThread::currentThread() == thread()) {
+			// We're on the main thread
+			mVideoLoggerRendererRun(&m_logger.d, false);
+		} else {
+			emit dataAvailable();
+			m_mutex.lock();
+			m_toThreadCond.wakeAll();
+			m_fromThreadCond.wait(&m_mutex);
+			m_mutex.unlock();
+		}
 	}
 	return true;
 }
@@ -81,11 +96,22 @@ bool VideoProxy::readData(void* data, size_t length, bool block) {
 }
 
 void VideoProxy::postEvent(enum mVideoLoggerEvent event) {
-	emit eventPosted(event);
+	if (QThread::currentThread() == thread()) {
+		// We're on the main thread
+		emit eventPosted(event);
+	} else {
+		m_mutex.lock();
+		emit eventPosted(event);
+		m_fromThreadCond.wait(&m_mutex, 1);
+		m_mutex.unlock();
+	}
 }
 
 void VideoProxy::handleEvent(int event) {
+	m_mutex.lock();
 	m_logger.d.handleEvent(&m_logger.d, static_cast<enum mVideoLoggerEvent>(event));
+	m_fromThreadCond.wakeAll();
+	m_mutex.unlock();
 }
 
 void VideoProxy::lock() {
@@ -99,9 +125,14 @@ void VideoProxy::unlock() {
 void VideoProxy::wait() {
 	m_mutex.lock();
 	while (RingFIFOSize(&m_dirtyQueue)) {
-		emit dataAvailable();
-		m_toThreadCond.wakeAll();
-		m_fromThreadCond.wait(&m_mutex, 1);
+		if (QThread::currentThread() == thread()) {
+			// We're on the main thread
+			mVideoLoggerRendererRun(&m_logger.d, false);
+		} else {
+			emit dataAvailable();
+			m_toThreadCond.wakeAll();
+			m_fromThreadCond.wait(&m_mutex, 1);
+		}
 	}
 	m_mutex.unlock();
 }

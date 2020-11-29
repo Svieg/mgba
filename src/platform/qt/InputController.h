@@ -10,6 +10,7 @@
 
 #include <QImage>
 #include <QMutex>
+#include <QReadWriteLock>
 #include <QObject>
 #include <QSet>
 #include <QTimer>
@@ -83,7 +84,7 @@ public:
 	QStringList connectedGamepads(uint32_t type) const;
 	int gamepad(uint32_t type) const;
 	void setGamepad(uint32_t type, int index);
-	void setPreferredGamepad(uint32_t type, const QString& device);
+	void setPreferredGamepad(uint32_t type, int index);
 
 	void registerTiltAxisX(int axis);
 	void registerTiltAxisY(int axis);
@@ -181,6 +182,7 @@ private:
 	QTimer m_gamepadTimer{nullptr};
 
 	QSet<GBAKey> m_pendingEvents;
+	QReadWriteLock m_eventsLock;
 };
 
 }

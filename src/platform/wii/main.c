@@ -28,10 +28,15 @@
 #include <mgba-util/memory.h>
 #include <mgba-util/vfs.h>
 
+#ifdef WIIDRC
+#include <wiidrc/wiidrc.h>
+#endif
+
 #define GCN1_INPUT 0x47434E31
 #define GCN2_INPUT 0x47434E32
 #define WIIMOTE_INPUT 0x5749494D
 #define CLASSIC_INPUT 0x57494943
+#define DRC_INPUT 0x44524355
 
 #define TEX_W 256
 #define TEX_H 224
@@ -64,7 +69,8 @@ static enum VideoMode {
 	VM_MAX
 } videoMode = VM_AUTODETECT;
 
-#define SAMPLES 1024
+#define SAMPLES 512
+#define BUFFERS 8
 #define GUI_SCALE 1.35f
 #define GUI_SCALE_240p 2.0f
 
@@ -131,9 +137,12 @@ size_t romBufferSize;
 static void* framebuffer[2] = { 0, 0 };
 static int whichFb = 0;
 
-static struct GBAStereoSample audioBuffer[3][SAMPLES] __attribute__((__aligned__(32)));
-static volatile size_t audioBufferSize = 0;
+static struct AudioBuffer {
+	struct GBAStereoSample samples[SAMPLES] __attribute__((__aligned__(32)));
+	volatile size_t size;
+} audioBuffer[BUFFERS] = {0};
 static volatile int currentAudioBuffer = 0;
+static volatile int nextAudioBuffer = 0;
 static double audioSampleRate = 60.0 / 1.001;
 
 static struct GUIFont* font;
@@ -250,6 +259,9 @@ int main(int argc, char* argv[]) {
 	PAD_Init();
 	WPAD_Init();
 	WPAD_SetDataFormat(0, WPAD_FMT_BTNS_ACC_IR);
+#ifdef WIIDRC
+	WiiDRC_Init();
+#endif
 	AUDIO_Init(0);
 	AUDIO_SetDSPSampleRate(AI_SAMPLERATE_48KHZ);
 	AUDIO_RegisterDMACallback(_audioDMA);
@@ -258,7 +270,7 @@ int main(int argc, char* argv[]) {
 #ifdef FIXED_ROM_BUFFER
 	romBufferSize = SIZE_CART0;
 	romBuffer = SYS_GetArena2Lo();
-	SYS_SetArena2Lo((void*)((intptr_t) romBuffer + SIZE_CART0));
+	SYS_SetArena2Lo((void*)((intptr_t) romBuffer + romBufferSize));
 #endif
 
 #if !defined(COLOR_16_BIT) && !defined(COLOR_5_6_5)
@@ -448,6 +460,31 @@ int main(int argc, char* argv[]) {
 				},
 				.nKeys = 32
 			},
+#ifdef WIIDRC
+			{
+				.name = "Wii U GamePad Input",
+				.id = DRC_INPUT,
+				.keyNames = (const char*[]) {
+					0, // Sync
+					"\1\xE",
+					"-",
+					"+",
+					"R",
+					"L",
+					"ZR",
+					"ZL",
+					"Down",
+					"Up",
+					"Right",
+					"Left",
+					"Y",
+					"X",
+					"B",
+					"A",
+				},
+				.nKeys = 16
+			},
+#endif
 			{ .id = 0 }
 		},
 		.configExtra = (struct GUIMenuItem[]) {
@@ -572,6 +609,15 @@ int main(int argc, char* argv[]) {
 	_mapKey(&runner.params.keyMap, CLASSIC_INPUT, WPAD_CLASSIC_BUTTON_LEFT, GUI_INPUT_LEFT);
 	_mapKey(&runner.params.keyMap, CLASSIC_INPUT, WPAD_CLASSIC_BUTTON_RIGHT, GUI_INPUT_RIGHT);
 
+#ifdef WIIDRC
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_A, GUI_INPUT_SELECT);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_B, GUI_INPUT_BACK);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_X, GUI_INPUT_CANCEL);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_UP, GUI_INPUT_UP);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_DOWN, GUI_INPUT_DOWN);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_LEFT, GUI_INPUT_LEFT);
+	_mapKey(&runner.params.keyMap, DRC_INPUT, WIIDRC_BUTTON_RIGHT, GUI_INPUT_RIGHT);
+#endif
 
 	float stretch = 0;
 	if (mCoreConfigGetFloatValue(&runner.config, "stretchWidth", &stretch)) {
@@ -610,32 +656,43 @@ int main(int argc, char* argv[]) {
 }
 
 static void _audioDMA(void) {
-	if (!audioBufferSize) {
+	struct AudioBuffer* buffer = &audioBuffer[currentAudioBuffer];
+	if (buffer->size != SAMPLES) {
 		return;
 	}
-	DCFlushRange(audioBuffer[currentAudioBuffer], audioBufferSize * sizeof(struct GBAStereoSample));
-	AUDIO_InitDMA((u32) audioBuffer[currentAudioBuffer], audioBufferSize * sizeof(struct GBAStereoSample));
-	currentAudioBuffer = (currentAudioBuffer + 1) % 3;
-	audioBufferSize = 0;
+	DCFlushRange(buffer->samples, SAMPLES * sizeof(struct GBAStereoSample));
+	AUDIO_InitDMA((u32) buffer->samples, SAMPLES * sizeof(struct GBAStereoSample));
+	buffer->size = 0;
+	currentAudioBuffer = (currentAudioBuffer + 1) % BUFFERS;
 }
 
 static void _postAudioBuffer(struct mAVStream* stream, blip_t* left, blip_t* right) {
 	UNUSED(stream);
+
+	u32 level = 0;
+	_CPU_ISR_Disable(level);
+	struct AudioBuffer* buffer = &audioBuffer[nextAudioBuffer];
 	int available = blip_samples_avail(left);
-	if (available + audioBufferSize > SAMPLES) {
-		available = SAMPLES - audioBufferSize;
+	if (available + buffer->size > SAMPLES) {
+		available = SAMPLES - buffer->size;
 	}
-	available &= ~((32 / sizeof(struct GBAStereoSample)) - 1); // Force align to 32 bytes
 	if (available > 0) {
 		// These appear to be reversed for AUDIO_InitDMA
-		blip_read_samples(left, &audioBuffer[currentAudioBuffer][audioBufferSize].right, available, true);
-		blip_read_samples(right, &audioBuffer[currentAudioBuffer][audioBufferSize].left, available, true);
-		audioBufferSize += available;
+		blip_read_samples(left, &buffer->samples[buffer->size].right, available, true);
+		blip_read_samples(right, &buffer->samples[buffer->size].left, available, true);
+		buffer->size += available;
 	}
-	if (audioBufferSize == SAMPLES && !AUDIO_GetDMAEnableFlag()) {
-		_audioDMA();
-		AUDIO_StartDMA();
+	if (buffer->size == SAMPLES) {
+		int next = (nextAudioBuffer + 1) % BUFFERS;
+		if ((currentAudioBuffer + BUFFERS - next) % BUFFERS != 1) {
+			nextAudioBuffer = next;
+		}
+		if (!AUDIO_GetDMAEnableFlag()) {
+			_audioDMA();
+			AUDIO_StartDMA();
+		}
 	}
+	_CPU_ISR_Restore(level);
 }
 
 static void _drawStart(void) {
@@ -648,6 +705,8 @@ static void _drawStart(void) {
 			VIDEO_WaitVSync();
 		}
 		referenceRetraceCount = retraceCount;
+	} else if (frameLimiter && referenceRetraceCount < retraceCount - 1) {
+		referenceRetraceCount = retraceCount - 1;
 	}
 	_CPU_ISR_Restore(level);
 
@@ -684,29 +743,48 @@ static uint32_t _pollInput(const struct mInputMap* map) {
 	u32 ext = 0;
 	WPAD_Probe(0, &ext);
 
+#ifdef WIIDRC
+	u32 drckeys = 0;
+	if (WiiDRC_ScanPads()) {
+		drckeys = WiiDRC_ButtonsHeld();
+	}
+#endif
+
 	int keys = 0;
 	keys |= mInputMapKeyBits(map, GCN1_INPUT, padkeys, 0);
 	keys |= mInputMapKeyBits(map, GCN2_INPUT, padkeys, 0);
 	keys |= mInputMapKeyBits(map, WIIMOTE_INPUT, wiiPad, 0);
+#ifdef WIIDRC
+	keys |= mInputMapKeyBits(map, DRC_INPUT, drckeys, 0);
+#endif
 	if (ext == WPAD_EXP_CLASSIC) {
 		keys |= mInputMapKeyBits(map, CLASSIC_INPUT, wiiPad, 0);
 	}
 	int x = PAD_StickX(0);
 	int y = PAD_StickY(0);
-	int w_x = WPAD_StickX(0, 0);
-	int w_y = WPAD_StickY(0, 0);
-	if (x < -ANALOG_DEADZONE || w_x < -ANALOG_DEADZONE) {
+	int wX = WPAD_StickX(0, 0);
+	int wY = WPAD_StickY(0, 0);
+	ATTRIBUTE_UNUSED int drcX = 0;
+	ATTRIBUTE_UNUSED int drcY = 0;
+#ifdef WIIDRC
+	if (WiiDRC_Connected()) {
+		drcX = WiiDRC_lStickX();
+		drcY = WiiDRC_lStickY();
+	}
+#endif
+	if (x < -ANALOG_DEADZONE || wX < -ANALOG_DEADZONE || drcX < -ANALOG_DEADZONE) {
 		keys |= 1 << GUI_INPUT_LEFT;
 	}
-	if (x > ANALOG_DEADZONE || w_x > ANALOG_DEADZONE) {
+	if (x > ANALOG_DEADZONE || wX > ANALOG_DEADZONE || drcX > ANALOG_DEADZONE) {
 		keys |= 1 << GUI_INPUT_RIGHT;
 	}
-	if (y < -ANALOG_DEADZONE || w_y < -ANALOG_DEADZONE) {
+	if (y < -ANALOG_DEADZONE || wY < -ANALOG_DEADZONE || drcY < -ANALOG_DEADZONE) {
 		keys |= 1 << GUI_INPUT_DOWN;
 	}
-	if (y > ANALOG_DEADZONE || w_y > ANALOG_DEADZONE) {
+	if (y > ANALOG_DEADZONE || wY > ANALOG_DEADZONE || drcY > ANALOG_DEADZONE) {
 		keys |= 1 << GUI_INPUT_UP;
 	}
+
 	return keys;
 }
 
@@ -786,16 +864,37 @@ void _setup(struct mGUIRunner* runner) {
 	_mapKey(&runner->core->inputMap, CLASSIC_INPUT, WPAD_CLASSIC_BUTTON_FULL_L, GBA_KEY_L);
 	_mapKey(&runner->core->inputMap, CLASSIC_INPUT, WPAD_CLASSIC_BUTTON_FULL_R, GBA_KEY_R);
 
+#ifdef WIIDRC
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_A, GBA_KEY_A);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_B, GBA_KEY_B);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_PLUS, GBA_KEY_START);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_MINUS, GBA_KEY_SELECT);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_UP, GBA_KEY_UP);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_DOWN, GBA_KEY_DOWN);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_LEFT, GBA_KEY_LEFT);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_RIGHT, GBA_KEY_RIGHT);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_L, GBA_KEY_L);
+	_mapKey(&runner->core->inputMap, DRC_INPUT, WIIDRC_BUTTON_R, GBA_KEY_R);
+#endif
+
 	struct mInputAxis desc = { GBA_KEY_RIGHT, GBA_KEY_LEFT, ANALOG_DEADZONE, -ANALOG_DEADZONE };
 	mInputBindAxis(&runner->core->inputMap, GCN1_INPUT, 0, &desc);
 	mInputBindAxis(&runner->core->inputMap, CLASSIC_INPUT, 0, &desc);
+	mInputBindAxis(&runner->core->inputMap, DRC_INPUT, 0, &desc);
 	desc = (struct mInputAxis) { GBA_KEY_UP, GBA_KEY_DOWN, ANALOG_DEADZONE, -ANALOG_DEADZONE };
 	mInputBindAxis(&runner->core->inputMap, GCN1_INPUT, 1, &desc);
 	mInputBindAxis(&runner->core->inputMap, CLASSIC_INPUT, 1, &desc);
+	mInputBindAxis(&runner->core->inputMap, DRC_INPUT, 1, &desc);
 
 	outputBuffer = memalign(32, TEX_W * TEX_H * BYTES_PER_PIXEL);
 	runner->core->setVideoBuffer(runner->core, outputBuffer, TEX_W);
 
+	nextAudioBuffer = 0;
+	currentAudioBuffer = 0;
+	int i;
+	for (i = 0; i < BUFFERS; ++i) {
+		audioBuffer[i].size = 0;
+	}
 	runner->core->setAudioBufferSize(runner->core, SAMPLES);
 
 	double ratio = GBAAudioCalculateRatio(1, audioSampleRate, 1);
@@ -854,9 +953,11 @@ void _unpaused(struct mGUIRunner* runner) {
 		case FM_LINEAR_2x:
 		default:
 			GX_InitTexObjFilterMode(&tex, GX_NEAR, GX_NEAR);
+			GX_InitTexObjFilterMode(&interframeTex, GX_NEAR, GX_NEAR);
 			break;
 		case FM_LINEAR_1x:
 			GX_InitTexObjFilterMode(&tex, GX_LINEAR, GX_LINEAR);
+			GX_InitTexObjFilterMode(&interframeTex, GX_LINEAR, GX_LINEAR);
 			break;
 		}
 	}
@@ -1008,9 +1109,18 @@ uint16_t _pollGameInput(struct mGUIRunner* runner) {
 	u32 wiiPad = WPAD_ButtonsHeld(0);
 	u32 ext = 0;
 	WPAD_Probe(0, &ext);
+#ifdef WIIDRC
+	u32 drckeys = 0;
+	if (WiiDRC_ScanPads()) {
+		drckeys = WiiDRC_ButtonsHeld();
+	}
+#endif
 	uint16_t keys = mInputMapKeyBits(&runner->core->inputMap, GCN1_INPUT, padkeys, 0);
 	keys |= mInputMapKeyBits(&runner->core->inputMap, GCN2_INPUT, padkeys, 0);
 	keys |= mInputMapKeyBits(&runner->core->inputMap, WIIMOTE_INPUT, wiiPad, 0);
+#ifdef WIIDRC
+	keys |= mInputMapKeyBits(&runner->core->inputMap, DRC_INPUT, drckeys, 0);
+#endif
 
 	enum GBAKey angles = mInputMapAxis(&runner->core->inputMap, GCN1_INPUT, 0, PAD_StickX(0));
 	if (angles != GBA_KEY_NONE) {
@@ -1031,6 +1141,19 @@ uint16_t _pollGameInput(struct mGUIRunner* runner) {
 			keys |= 1 << angles;
 		}
 	}
+#ifdef WIIDRC
+	if (WiiDRC_Connected()) {
+		keys |= mInputMapKeyBits(&runner->core->inputMap, DRC_INPUT, drckeys, 0);
+		angles = mInputMapAxis(&runner->core->inputMap, DRC_INPUT, 0, WiiDRC_lStickX());
+		if (angles != GBA_KEY_NONE) {
+			keys |= 1 << angles;
+		}
+		angles = mInputMapAxis(&runner->core->inputMap, DRC_INPUT, 1, WiiDRC_lStickY());
+		if (angles != GBA_KEY_NONE) {
+			keys |= 1 << angles;
+		}
+	}
+#endif
 
 	return keys;
 }
@@ -1048,9 +1171,11 @@ void _incrementScreenMode(struct mGUIRunner* runner) {
 	case FM_LINEAR_2x:
 	default:
 		GX_InitTexObjFilterMode(&tex, GX_NEAR, GX_NEAR);
+		GX_InitTexObjFilterMode(&interframeTex, GX_NEAR, GX_NEAR);
 		break;
 	case FM_LINEAR_1x:
 		GX_InitTexObjFilterMode(&tex, GX_LINEAR, GX_LINEAR);
+		GX_InitTexObjFilterMode(&interframeTex, GX_LINEAR, GX_LINEAR);
 		break;
 	}
 }

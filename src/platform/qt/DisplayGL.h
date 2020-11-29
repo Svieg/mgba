@@ -16,6 +16,8 @@
 #endif
 #endif
 
+#include <QAtomicInt>
+#include <QElapsedTimer>
 #include <QOpenGLContext>
 #include <QList>
 #include <QMouseEvent>
@@ -24,9 +26,13 @@
 #include <QThread>
 #include <QTimer>
 
+#include <array>
+
 #include "VideoProxy.h"
 
 #include "platform/video-backend.h"
+
+class QOpenGLPaintDevice;
 
 namespace QGBA {
 
@@ -53,11 +59,13 @@ public slots:
 	void lockAspectRatio(bool lock) override;
 	void lockIntegerScaling(bool lock) override;
 	void interframeBlending(bool enable) override;
+	void showOSDMessages(bool enable) override;
 	void filter(bool filter) override;
 	void framePosted() override;
 	void setShaders(struct VDir*) override;
 	void clearShaders() override;
 	void resizeContext() override;
+	void setVideoScale(int scale) override;
 
 protected:
 	virtual void paintEvent(QPaintEvent*) override { forceDraw(); }
@@ -67,8 +75,8 @@ private:
 	void resizePainter();
 
 	bool m_isDrawing = false;
-	QOpenGLContext* m_gl;
-	PainterGL* m_painter;
+	bool m_hasStarted = false;
+	std::unique_ptr<PainterGL> m_painter;
 	QThread* m_drawThread = nullptr;
 	std::shared_ptr<CoreController> m_context;
 };
@@ -77,7 +85,7 @@ class PainterGL : public QObject {
 Q_OBJECT
 
 public:
-	PainterGL(QWindow* surface, QOpenGLContext* parent, int forceVersion = 0);
+	PainterGL(QWindow* surface, const QSurfaceFormat& format);
 	~PainterGL();
 
 	void setContext(std::shared_ptr<CoreController>);
@@ -99,6 +107,7 @@ public slots:
 	void lockAspectRatio(bool lock);
 	void lockIntegerScaling(bool lock);
 	void interframeBlending(bool enable);
+	void showOSD(bool enable);
 	void filter(bool filter);
 	void resizeContext();
 
@@ -108,32 +117,38 @@ public slots:
 
 	int glTex();
 
-private slots:
-	void swap();
+signals:
+	void started();
 
 private:
+	void makeCurrent();
 	void performDraw();
 	void dequeue();
 	void dequeueAll();
+	void create();
+	void destroy();
 
+	std::array<std::array<uint32_t, 0x100000>, 3> m_buffers;
 	QList<uint32_t*> m_free;
 	QQueue<uint32_t*> m_queue;
+	QAtomicInt m_lagging = 0;
+	uint32_t* m_buffer;
 	QPainter m_painter;
 	QMutex m_mutex;
 	QWindow* m_surface;
-	QPaintDevice* m_window;
-	QOpenGLContext* m_gl;
+	QSurfaceFormat m_format;
+	std::unique_ptr<QOpenGLPaintDevice> m_window;
+	std::unique_ptr<QOpenGLContext> m_gl;
 	bool m_active = false;
 	bool m_started = false;
 	std::shared_ptr<CoreController> m_context = nullptr;
 	bool m_supportsShaders;
+	bool m_showOSD;
 	VideoShader m_shader{};
 	VideoBackend* m_backend = nullptr;
 	QSize m_size;
 	MessagePainter* m_messagePainter = nullptr;
-	QTimer m_swapTimer{this};
-	bool m_needsUnlock = false;
-	bool m_frameReady = false;
+	QElapsedTimer m_delayTimer;
 	std::shared_ptr<VideoProxy> m_videoProxy;
 };
 

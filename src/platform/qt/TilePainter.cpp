@@ -19,13 +19,16 @@ TilePainter::TilePainter(QWidget* parent)
 	setTileCount(3072);
 }
 
-void TilePainter::paintEvent(QPaintEvent* event) {
+void TilePainter::paintEvent(QPaintEvent*) {
 	QPainter painter(this);
 	painter.drawPixmap(QPoint(), m_backing);
 }
 
-void TilePainter::resizeEvent(QResizeEvent* event) {
+void TilePainter::resizeEvent(QResizeEvent*) {
 	int w = width() / m_size;
+	if (!w) {
+		w = 1;
+	}
 	int calculatedHeight = (m_tileCount + w - 1) * m_size / w;
 	calculatedHeight -= calculatedHeight % m_size;
 	if (width() / m_size != m_backing.width() / m_size || m_backing.height() != calculatedHeight) {

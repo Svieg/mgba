@@ -75,6 +75,7 @@ public slots:
 	void selectSave(bool temporary);
 	void selectState(bool load);
 	void selectPatch();
+	void scanCard();
 	void enterFullScreen();
 	void exitFullScreen();
 	void toggleFullScreen();
@@ -101,9 +102,6 @@ public slots:
 
 #ifdef USE_FFMPEG
 	void openVideoWindow();
-#endif
-
-#ifdef USE_MAGICK
 	void openGIFWindow();
 #endif
 
@@ -133,6 +131,8 @@ private slots:
 
 	void reloadAudioDriver();
 	void reloadDisplayDriver();
+	void attachDisplay();
+	void changeRenderer();
 
 	void tryMakePortable();
 	void mustRestart();
@@ -143,8 +143,11 @@ private slots:
 
 	void updateFrame();
 
+	void setLogo();
+
 private:
 	static const int FPS_TIMER_INTERVAL = 2000;
+	static const int MUST_RESTART_TIMEOUT = 10000;
 
 	void setupMenu(QMenuBar*);
 	void openStateWindow(LoadSave);
@@ -153,6 +156,7 @@ private:
 	void detachWidget(QWidget* widget);
 
 	void appendMRU(const QString& fname);
+	void clearMRU();
 	void updateMRU();
 
 	void openView(QWidget* widget);
@@ -162,6 +166,7 @@ private:
 
 	Action* addGameAction(const QString& visibleName, const QString& name, Action::Function action, const QString& menu = {}, const QKeySequence& = {});
 	template<typename T, typename V> Action* addGameAction(const QString& visibleName, const QString& name, T* obj, V (T::*action)(), const QString& menu = {}, const QKeySequence& = {});
+	template<typename V> Action* addGameAction(const QString& visibleName, const QString& name, V (CoreController::*action)(), const QString& menu = {}, const QKeySequence& = {});
 	Action* addGameAction(const QString& visibleName, const QString& name, Action::BooleanFunction action, const QString& menu = {}, const QKeySequence& = {});
 
 	void updateTitle(float fps = -1);
@@ -199,6 +204,7 @@ private:
 	QList<qint64> m_frameList;
 	QElapsedTimer m_frameTimer;
 	QTimer m_fpsTimer;
+	QTimer m_mustRestart;
 	QList<QString> m_mruFiles;
 	ShortcutController* m_shortcutController;
 #if defined(BUILD_GL) || defined(BUILD_GLES2)
@@ -221,9 +227,6 @@ private:
 
 #ifdef USE_FFMPEG
 	VideoView* m_videoView = nullptr;
-#endif
-
-#ifdef USE_MAGICK
 	GIFView* m_gifView = nullptr;
 #endif
 
@@ -248,6 +251,7 @@ public:
 	void setDimensions(int width, int height);
 	void setLockIntegerScaling(bool lock);
 	void setLockAspectRatio(bool lock);
+	void filter(bool filter);
 
 	const QPixmap& pixmap() const { return m_pixmap; }
 
@@ -261,6 +265,7 @@ private:
 	int m_aspectHeight;
 	bool m_lockAspectRatio;
 	bool m_lockIntegerScaling;
+	bool m_filter;
 };
 
 }

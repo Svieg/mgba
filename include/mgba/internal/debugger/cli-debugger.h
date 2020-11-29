@@ -42,6 +42,11 @@ struct CLIDebuggerCommandSummary {
 	const char* summary;
 };
 
+struct CLIDebuggerCommandAlias {
+	const char* name;
+	const char* original;
+};
+
 struct CLIDebuggerSystem {
 	struct CLIDebugger* p;
 
@@ -53,8 +58,10 @@ struct CLIDebuggerSystem {
 	void (*printStatus)(struct CLIDebuggerSystem*);
 
 	struct CLIDebuggerCommandSummary* commands;
+	struct CLIDebuggerCommandAlias* commandAliases;
 	const char* name;
 	struct CLIDebuggerCommandSummary* platformCommands;
+	struct CLIDebuggerCommandAlias* platformCommandAliases;
 	const char* platformName;
 };
 
@@ -87,6 +94,11 @@ void CLIDebuggerAttachSystem(struct CLIDebugger*, struct CLIDebuggerSystem*);
 void CLIDebuggerAttachBackend(struct CLIDebugger*, struct CLIDebuggerBackend*);
 
 bool CLIDebuggerTabComplete(struct CLIDebugger*, const char* token, bool initial, size_t len);
+
+bool CLIDebuggerRunCommand(struct CLIDebugger* debugger, const char* line, size_t count);
+#ifdef ENABLE_SCRIPTING
+void CLIDebuggerScriptEngineInstall(struct mScriptBridge* sb);
+#endif
 
 CXX_GUARD_END
 

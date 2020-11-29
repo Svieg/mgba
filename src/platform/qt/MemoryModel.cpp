@@ -88,6 +88,23 @@ MemoryModel::MemoryModel(QWidget* parent)
 		update();
 	});
 
+	connect(verticalScrollBar(), &QSlider::actionTriggered, [this](int action) {
+		if (action == QSlider::SliderSingleStepAdd) {
+			++m_top;
+		} else if (action == QSlider::SliderSingleStepSub) {
+			--m_top;
+		} else if (action == QSlider::SliderPageStepAdd) {
+			m_top += (viewport()->size().height() - m_cellHeight) / m_cellHeight;
+		} else if (action == QSlider::SliderPageStepSub) {
+			m_top -= (viewport()->size().height() - m_cellHeight) / m_cellHeight;
+		} else {
+			return;
+		}
+		boundsCheck();
+		verticalScrollBar()->setValue(m_top);
+		update();
+	});
+
 	setRegion(0, 0x10000000, tr("All"));
 }
 
@@ -229,7 +246,7 @@ QByteArray MemoryModel::serialize() {
 		for (uint32_t i = m_selection.first; i < m_selection.second; i += m_align) {
 			quint16 datum = m_core->rawRead16(m_core, i, m_currentBank);
 			char leDatum[2];
-			STORE_16LE(datum, 0, (uint16_t*) leDatum);
+			STORE_16BE(datum, 0, (uint16_t*) leDatum);
 			bytes.append(leDatum, 2);
 		}
 		break;
@@ -237,7 +254,7 @@ QByteArray MemoryModel::serialize() {
 		for (uint32_t i = m_selection.first; i < m_selection.second; i += m_align) {
 			quint32 datum = m_core->rawRead32(m_core, i, m_currentBank);
 			char leDatum[4];
-			STORE_32LE(datum, 0, (uint16_t*) leDatum);
+			STORE_32BE(datum, 0, (uint32_t*) leDatum);
 			bytes.append(leDatum, 4);
 		}
 		break;
@@ -258,7 +275,7 @@ void MemoryModel::deserialize(const QByteArray& bytes) {
 		for (int i = 0; i < bytes.size(); i += m_align, addr += m_align) {
 			char leDatum[2]{ bytes[i], bytes[i + 1] };
 			uint16_t datum;
-			LOAD_16LE(datum, 0, leDatum);
+			LOAD_16BE(datum, 0, leDatum);
 			m_core->rawWrite16(m_core, addr, m_currentBank, datum);
 		}
 		break;
@@ -266,7 +283,7 @@ void MemoryModel::deserialize(const QByteArray& bytes) {
 		for (int i = 0; i < bytes.size(); i += m_align, addr += m_align) {
 			char leDatum[4]{ bytes[i], bytes[i + 1], bytes[i + 2], bytes[i + 3] };
 			uint32_t datum;
-			LOAD_32LE(datum, 0, leDatum);
+			LOAD_32BE(datum, 0, leDatum);
 			m_core->rawWrite32(m_core, addr, m_currentBank, datum);
 		}
 		break;
@@ -311,7 +328,7 @@ void MemoryModel::resizeEvent(QResizeEvent*) {
 	boundsCheck();
 }
 
-void MemoryModel::paintEvent(QPaintEvent* event) {
+void MemoryModel::paintEvent(QPaintEvent*) {
 	QPainter painter(viewport());
 	QPalette palette;
 	painter.setFont(m_font);
@@ -319,7 +336,6 @@ void MemoryModel::paintEvent(QPaintEvent* event) {
 	static QChar c0('0');
 	static QString arg("%0");
 	static QString arg2("%0:%1");
-	QSizeF letterSize = QSizeF(m_letterWidth, m_cellHeight);
 	painter.drawStaticText(QPointF((m_margins.left() - m_regionName.size().width() - 1) / 2.0, 0), m_regionName);
 	painter.drawText(
 	    QRect(QPoint(viewport()->size().width() - m_margins.right(), 0), QSize(m_margins.right(), m_margins.top())),
@@ -576,6 +592,12 @@ void MemoryModel::keyPressEvent(QKeyEvent* event) {
 		return;
 	case Qt::Key_Down:
 		adjustCursor(16, event->modifiers() & Qt::ShiftModifier);
+		return;
+	case Qt::Key_PageUp:
+		adjustCursor(-16 * ((viewport()->size().height() - m_cellHeight) / m_cellHeight), event->modifiers() & Qt::ShiftModifier);
+		return;
+	case Qt::Key_PageDown:
+		adjustCursor(16 * ((viewport()->size().height() - m_cellHeight) / m_cellHeight), event->modifiers() & Qt::ShiftModifier);
 		return;
 	default:
 		return;

@@ -16,17 +16,21 @@
 
 using namespace QGBA;
 
+#ifdef M_CORE_GB
 MultiplayerController::Player::Player(CoreController* coreController, GBSIOLockstepNode* node)
 	: controller(coreController)
 	, gbNode(node)
 {
 }
+#endif
 
+#ifdef M_CORE_GBA
 MultiplayerController::Player::Player(CoreController* coreController, GBASIOLockstepNode* node)
 	: controller(coreController)
 	, gbaNode(node)
 {
 }
+#endif
 
 MultiplayerController::MultiplayerController() {
 	mLockstepInit(&m_lockstep);
@@ -71,10 +75,12 @@ MultiplayerController::MultiplayerController() {
 		if (!id) {
 			for (int i = 1; i < controller->m_players.count(); ++i) {
 				Player* player = &controller->m_players[i];
+#ifdef M_CORE_GBA
 				if (player->controller->platform() == PLATFORM_GBA && player->gbaNode->d.p->mode != controller->m_players[0].gbaNode->d.p->mode) {
 					player->controller->setSync(true);
 					continue;
 				}
+#endif
 				player->controller->setSync(false);
 				player->cyclesPosted += cycles;
 				if (player->awake < 1) {
@@ -215,6 +221,7 @@ bool MultiplayerController::attachGame(CoreController* controller) {
 		m_players.append({controller, node});
 
 		GBASIOSetDriver(&gba->sio, &node->d, SIO_MULTI);
+		GBASIOSetDriver(&gba->sio, &node->d, SIO_NORMAL_32);
 
 		emit gameAttached();
 		return true;
@@ -261,6 +268,7 @@ void MultiplayerController::detachGame(CoreController* controller) {
 		GBA* gba = static_cast<GBA*>(thread->core->board);
 		GBASIOLockstepNode* node = reinterpret_cast<GBASIOLockstepNode*>(gba->sio.drivers.multiplayer);
 		GBASIOSetDriver(&gba->sio, nullptr, SIO_MULTI);
+		GBASIOSetDriver(&gba->sio, nullptr, SIO_NORMAL_32);
 		if (node) {
 			GBASIOLockstepDetachNode(&m_gbaLockstep, node);
 			delete node;

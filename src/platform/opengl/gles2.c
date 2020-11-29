@@ -21,8 +21,20 @@ static const GLchar* const _gles2Header =
 	"#version 100\n"
 	"precision mediump float;\n";
 
-static const GLchar* const _gl3Header =
+static const GLchar* const _gl2Header =
 	"#version 120\n";
+
+static const GLchar* const _gl32VHeader =
+	"#version 150 core\n"
+	"#define attribute in\n"
+	"#define varying out\n";
+
+static const GLchar* const _gl32FHeader =
+	"#version 150 core\n"
+	"#define varying in\n"
+	"#define texture2D texture\n"
+	"out vec4 compat_FragColor;\n"
+	"#define gl_FragColor compat_FragColor\n";
 
 static const char* const _vertexShader =
 	"attribute vec4 position;\n"
@@ -89,6 +101,8 @@ static const GLfloat _vertices[] = {
 static void mGLES2ContextInit(struct VideoBackend* v, WHandle handle) {
 	UNUSED(handle);
 	struct mGLES2Context* context = (struct mGLES2Context*) v;
+	v->width = 1;
+	v->height = 1;
 	glGenTextures(1, &context->tex);
 	glBindTexture(GL_TEXTURE_2D, context->tex);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
@@ -163,6 +177,9 @@ static void mGLES2ContextInit(struct VideoBackend* v, WHandle handle) {
 
 static void mGLES2ContextSetDimensions(struct VideoBackend* v, unsigned width, unsigned height) {
 	struct mGLES2Context* context = (struct mGLES2Context*) v;
+	if (width == v->width && height == v->height) {
+		return;
+	}
 	v->width = width;
 	v->height = height;
 
@@ -178,6 +195,15 @@ static void mGLES2ContextSetDimensions(struct VideoBackend* v, unsigned width, u
 #else
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, width, height, 0, GL_RGBA, GL_UNSIGNED_BYTE, 0);
 #endif
+
+	size_t n;
+	for (n = 0; n < context->nShaders; ++n) {
+		if (context->shaders[n].width < 0 || context->shaders[n].height < 0) {
+			context->shaders[n].dirty = true;
+		}
+	}
+	context->initialShader.dirty = true;
+	context->interframeShader.dirty = true;
 }
 
 static void mGLES2ContextDeinit(struct VideoBackend* v) {
@@ -191,6 +217,7 @@ static void mGLES2ContextDeinit(struct VideoBackend* v) {
 }
 
 static void mGLES2ContextResized(struct VideoBackend* v, unsigned w, unsigned h) {
+	struct mGLES2Context* context = (struct mGLES2Context*) v;
 	unsigned drawW = w;
 	unsigned drawH = h;
 	if (v->lockAspectRatio) {
@@ -201,8 +228,18 @@ static void mGLES2ContextResized(struct VideoBackend* v, unsigned w, unsigned h)
 		}
 	}
 	if (v->lockIntegerScaling) {
-		drawW -= drawW % v->width;
-		drawH -= drawH % v->height;
+		if (drawW >= v->width) {
+			drawW -= drawW % v->width;
+		}
+		if (drawH >= v->height) {
+			drawH -= drawH % v->height;
+		}
+	}
+	size_t n;
+	for (n = 0; n < context->nShaders; ++n) {
+		if (context->shaders[n].width == 0 || context->shaders[n].height == 0) {
+			context->shaders[n].dirty = true;
+		}
 	}
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 	glViewport((w - drawW) / 2, (h - drawH) / 2, drawW, drawH);
@@ -217,8 +254,6 @@ static void mGLES2ContextClear(struct VideoBackend* v) {
 
 void _drawShader(struct mGLES2Context* context, struct mGLES2Shader* shader) {
 	GLint viewport[4];
-	glBindFramebuffer(GL_FRAMEBUFFER, shader->fbo);
-
 	glGetIntegerv(GL_VIEWPORT, viewport);
 	int drawW = shader->width;
 	int drawH = shader->height;
@@ -242,6 +277,19 @@ void _drawShader(struct mGLES2Context* context, struct mGLES2Shader* shader) {
 		drawW -= drawW % context->d.width;
 		drawH -= drawH % context->d.height;
 	}
+
+	if (shader->dirty) {
+		if (shader->tex && (shader->width <= 0 || shader->height <= 0)) {
+			GLint oldTex;
+			glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
+			glBindTexture(GL_TEXTURE_2D, shader->tex);
+			glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, drawW, drawH, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
+			glBindTexture(GL_TEXTURE_2D, oldTex);
+		}
+		shader->dirty = false;
+	}
+
+	glBindFramebuffer(GL_FRAMEBUFFER, shader->fbo);
 	glViewport(padW, padH, drawW, drawH);
 	if (shader->blend) {
 		glEnable(GL_BLEND);
@@ -250,14 +298,6 @@ void _drawShader(struct mGLES2Context* context, struct mGLES2Shader* shader) {
 		glDisable(GL_BLEND);
 		glClearColor(0.f, 0.f, 0.f, 1.f);
 		glClear(GL_COLOR_BUFFER_BIT);
-	}
-
-	if (shader->tex && (shader->width <= 0 || shader->height <= 0)) {
-		GLint oldTex;
-		glGetIntegerv(GL_TEXTURE_BINDING_2D, &oldTex);
-		glBindTexture(GL_TEXTURE_2D, shader->tex);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, drawW, drawH, 0, GL_RGB, GL_UNSIGNED_BYTE, 0);
-		glBindTexture(GL_TEXTURE_2D, oldTex);
 	}
 
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, shader->filter ? GL_LINEAR : GL_NEAREST);
@@ -336,6 +376,7 @@ void mGLES2ContextDrawFrame(struct VideoBackend* v) {
 	glGetIntegerv(GL_VIEWPORT, viewport);
 
 	context->finalShader.filter = v->filter;
+	context->finalShader.dirty = true;
 	_drawShader(context, &context->initialShader);
 	if (v->interframeBlending) {
 		context->interframeShader.blend = true;
@@ -400,6 +441,7 @@ void mGLES2ShaderInit(struct mGLES2Shader* shader, const char* vs, const char* f
 	shader->integerScaling = integerScaling;
 	shader->filter = false;
 	shader->blend = false;
+	shader->dirty = true;
 	shader->uniforms = uniforms;
 	shader->nUniforms = nUniforms;
 	glGenFramebuffers(1, &shader->fbo);
@@ -423,10 +465,12 @@ void mGLES2ShaderInit(struct mGLES2Shader* shader, const char* vs, const char* f
 	shader->fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
 	const GLchar* shaderBuffer[2];
 	const GLubyte* version = glGetString(GL_VERSION);
-	if (strncmp((const char*) version, "OpenGL ES ", strlen("OpenGL ES "))) {
-		shaderBuffer[0] = _gl3Header;
-	} else {
+	if (strncmp((const char*) version, "OpenGL ES ", strlen("OpenGL ES ")) == 0) {
 		shaderBuffer[0] = _gles2Header;
+	} else if (version[0] == '2') {
+		shaderBuffer[0] = _gl2Header;
+	} else {
+		shaderBuffer[0] = _gl32VHeader;
 	}
 	if (vs) {
 		shaderBuffer[1] = vs;
@@ -435,6 +479,9 @@ void mGLES2ShaderInit(struct mGLES2Shader* shader, const char* vs, const char* f
 	}
 	glShaderSource(shader->vertexShader, 2, shaderBuffer, 0);
 
+	if (shaderBuffer[0] == _gl32VHeader) {
+		shaderBuffer[0] = _gl32FHeader;
+	}
 	if (fs) {
 		shaderBuffer[1] = fs;
 	} else {
@@ -874,7 +921,7 @@ bool mGLES2ShaderLoad(struct VideoShader* shader, struct VDir* dir) {
 			success = false;
 		}
 		if (success) {
-			struct mGLES2Shader* shaderBlock = malloc(sizeof(struct mGLES2Shader) * inShaders);
+			struct mGLES2Shader* shaderBlock = calloc(inShaders, sizeof(struct mGLES2Shader));
 			int n;
 			for (n = 0; n < inShaders; ++n) {
 				char passName[12];
@@ -933,7 +980,7 @@ bool mGLES2ShaderLoad(struct VideoShader* shader, struct VDir* dir) {
 					}
 				}
 				u = mGLES2UniformListSize(&uniformVector);
-				struct mGLES2Uniform* uniformBlock = malloc(sizeof(*uniformBlock) * u);
+				struct mGLES2Uniform* uniformBlock = calloc(u, sizeof(*uniformBlock));
 				memcpy(uniformBlock, mGLES2UniformListGetPointer(&uniformVector, 0), sizeof(*uniformBlock) * u);
 				mGLES2UniformListDeinit(&uniformVector);
 

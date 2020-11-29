@@ -12,11 +12,13 @@
 
 void GBVideoCacheInit(struct mCacheSet* cache) {
 	mCacheSetInit(cache, 2, 0, 1);
-	mTileCacheConfiguration config = 0;
-	config = mTileCacheSystemInfoSetPaletteBPP(config, 1); // 2^(2^1) = 4 entries
-	config = mTileCacheSystemInfoSetPaletteCount(config, 4); // 16 palettes
-	config = mTileCacheSystemInfoSetMaxTiles(config, 1024);
-	mTileCacheConfigureSystem(mTileCacheSetGetPointer(&cache->tiles, 0), config, 0, 0);
+	mTileCacheSystemInfo sysconfig = 0;
+	mTileCacheConfiguration config = mTileCacheConfigurationFillShouldStore(0);
+	sysconfig = mTileCacheSystemInfoSetPaletteBPP(sysconfig, 1); // 2^(2^1) = 4 entries
+	sysconfig = mTileCacheSystemInfoSetPaletteCount(sysconfig, 4); // 16 palettes
+	sysconfig = mTileCacheSystemInfoSetMaxTiles(sysconfig, 1024);
+	mTileCacheConfigureSystem(mTileCacheSetGetPointer(&cache->tiles, 0), sysconfig, 0, 0);
+	mTileCacheConfigure(mTileCacheSetGetPointer(&cache->tiles, 0), config);
 
 	mMapCacheSetGetPointer(&cache->maps, 0)->tileCache = mTileCacheSetGetPointer(&cache->tiles, 0);
 	mMapCacheSetGetPointer(&cache->maps, 1)->tileCache = mTileCacheSetGetPointer(&cache->tiles, 0);
@@ -36,7 +38,7 @@ void GBVideoCacheAssociate(struct mCacheSet* cache, struct GBVideo* video) {
 	mMapCacheConfigureSystem(mMapCacheSetGetPointer(&cache->maps, 0), sysconfig);
 	mMapCacheConfigureSystem(mMapCacheSetGetPointer(&cache->maps, 1), sysconfig);
 
-	GBVideoCacheWriteVideoRegister(cache, REG_LCDC, video->p->memory.io[REG_LCDC]);
+	GBVideoCacheWriteVideoRegister(cache, GB_REG_LCDC, video->p->memory.io[GB_REG_LCDC]);
 }
 
 static void mapParserDMG0(struct mMapCache* cache, struct mMapCacheEntry* entry, void* vram) {
@@ -78,7 +80,7 @@ static void mapParserCGB1(struct mMapCache* cache, struct mMapCacheEntry* entry,
 }
 
 void GBVideoCacheWriteVideoRegister(struct mCacheSet* cache, uint16_t address, uint8_t value) {
-	if (address != REG_LCDC) {
+	if (address != GB_REG_LCDC) {
 		return;
 	}
 	struct mMapCache* map = mMapCacheSetGetPointer(&cache->maps, 0);

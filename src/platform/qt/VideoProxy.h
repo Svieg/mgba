@@ -23,6 +23,8 @@ public:
 	VideoProxy();
 
 	void attach(CoreController*);
+	void detach(CoreController*);
+	void setBlocking(bool block) { m_logger.d.waitOnFlush = block; }
 
 signals:
 	void dataAvailable();

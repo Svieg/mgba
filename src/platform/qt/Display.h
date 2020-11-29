@@ -44,17 +44,20 @@ public:
 	bool isIntegerScalingLocked() const { return m_lockIntegerScaling; }
 	bool hasInterframeBlending() const { return m_interframeBlending; }
 	bool isFiltered() const { return m_filter; }
+	bool isShowOSD() const { return m_showOSD; }
 
 	virtual void startDrawing(std::shared_ptr<CoreController>) = 0;
 	virtual bool isDrawing() const = 0;
 	virtual bool supportsShaders() const = 0;
 	virtual VideoShader* shaders() = 0;
 	virtual int framebufferHandle() { return -1; }
+	virtual void setVideoScale(int) {}
 
 	virtual void setVideoProxy(std::shared_ptr<VideoProxy> proxy) { m_videoProxy = proxy; }
 	std::shared_ptr<VideoProxy> videoProxy() { return m_videoProxy; }
 	
 signals:
+	void drawingStarted();
 	void showCursor();
 	void hideCursor();
 
@@ -66,6 +69,7 @@ public slots:
 	virtual void lockAspectRatio(bool lock);
 	virtual void lockIntegerScaling(bool lock);
 	virtual void interframeBlending(bool enable);
+	virtual void showOSDMessages(bool enable);
 	virtual void filter(bool filter);
 	virtual void framePosted() = 0;
 	virtual void setShaders(struct VDir*) = 0;
@@ -85,6 +89,7 @@ private:
 	static const int MOUSE_DISAPPEAR_TIMER = 1000;
 
 	MessagePainter m_messagePainter;
+	bool m_showOSD = true;
 	bool m_lockAspectRatio = false;
 	bool m_lockIntegerScaling = false;
 	bool m_interframeBlending = false;
